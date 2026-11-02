@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ktv
+          POSTGRES_PASSWORD: ktv
+          POSTGRES_DB: ktv_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ktv" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://ktv:ktv@localhost:5432/ktv_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ktv/shared build
+      - name: Server — lint, type check, unit + e2e tests
+        working-directory: apps/server
+        run: |
+          pnpm lint
+          pnpm exec tsc --noEmit
+          pnpm test
+          pnpm test:e2e
+      - name: Web — build and unit tests
+        working-directory: apps/web
+        run: |
+          pnpm build
+          pnpm test --watch=false

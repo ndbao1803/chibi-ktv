@@ -1,0 +1,19 @@
+{
+  "name": "chibi-ktv",
+  "private": true,
+  "version": "0.1.0",
+  "description": "3D chibi karaoke rooms for friends",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "build": "pnpm --filter @ktv/shared build && pnpm --filter server build && pnpm --filter web build",
+    "dev:server": "pnpm --filter @ktv/shared build && pnpm --filter server start:dev",
+    "dev:web": "pnpm --filter web start",
+    "test": "pnpm --filter @ktv/shared build && pnpm --filter server test && pnpm --filter server test:e2e",
+    "start": "node apps/server/dist/main.js"
+  }
+}

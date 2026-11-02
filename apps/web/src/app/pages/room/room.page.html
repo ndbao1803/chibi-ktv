@@ -1,0 +1,38 @@
+<canvas #scene class="scene" aria-label="Phòng karaoke 3D với các nhân vật chibi"></canvas>
+
+<header class="hud brand panel">
+  <div class="logo">CHIBI <span>KTV</span></div>
+  <div class="meta">
+    {{ rt.room()?.name ?? 'Đang vào phòng…' }} ·
+    <b class="code">{{ code().toUpperCase() }}</b>
+  </div>
+  <div class="row">
+    <button class="btn-ghost small" (click)="copyLink()">{{ copied() ? 'Đã chép link' : 'Chép link mời' }}</button>
+    <button class="btn-ghost small" (click)="leave()">Rời phòng</button>
+  </div>
+</header>
+
+<aside class="hud members panel" aria-label="Đang online">
+  <h2>Đang online · {{ count() }}/{{ rt.room()?.capacity ?? 8 }}</h2>
+  <ul>
+    @for (m of rt.members(); track m.userId) {
+      <li [class.me]="m.userId === auth.user()?.id">
+        <i class="dot"></i>{{ m.displayName }} @if (m.userId === auth.user()?.id) { <small>(bạn)</small> }
+      </li>
+    }
+  </ul>
+</aside>
+
+<footer class="hud status panel">
+  <span class="conn" [class.on]="rt.connected()">{{ rt.connected() ? 'Đã kết nối' : 'Đang kết nối…' }}</span>
+  @if (rt.clock(); as c) {
+    <span>Đồng hồ lệch {{ c.offsetMs >= 0 ? '+' : '' }}{{ c.offsetMs }} ms · trễ {{ c.rttMs }} ms</span>
+  }
+</footer>
+
+@if (rt.error()) {
+  <div class="hud alert panel" role="alert">
+    <p>{{ rt.error() }}</p>
+    <button class="btn-main" (click)="leave()">Về sảnh</button>
+  </div>
+}

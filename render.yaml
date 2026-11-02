@@ -1,0 +1,20 @@
+# Render Blueprint: one free web service that runs the NestJS server and serves the Angular app.
+# The database is a free Neon PostgreSQL; paste its connection string as DATABASE_URL.
+services:
+  - type: web
+    name: chibi-ktv
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm build
+    startCommand: pnpm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false # set in the Render dashboard: your Neon connection string

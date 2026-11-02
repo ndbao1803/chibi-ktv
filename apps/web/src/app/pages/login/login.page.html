@@ -1,0 +1,36 @@
+<main class="wrap">
+  <section class="card panel">
+    <h1 class="logo">CHIBI <span>KTV</span></h1>
+    <p class="tag">Phòng karaoke 3D cho hội bạn thân</p>
+
+    <div class="tabs" role="tablist">
+      <button role="tab" [attr.aria-selected]="mode() === 'login'" (click)="switchTo('login')">Đăng nhập</button>
+      <button role="tab" [attr.aria-selected]="mode() === 'register'" (click)="switchTo('register')">Tạo tài khoản</button>
+    </div>
+
+    <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      @if (mode() === 'register') {
+        <div class="field">
+          <label for="displayName">Tên hiển thị trong phòng</label>
+          <input id="displayName" formControlName="displayName" autocomplete="nickname" maxlength="24" placeholder="Ví dụ: Minh Anh" />
+        </div>
+      }
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" formControlName="email" autocomplete="email" />
+      </div>
+      <div class="field">
+        <label for="password">Mật khẩu</label>
+        <input id="password" type="password" formControlName="password"
+               [attr.autocomplete]="mode() === 'login' ? 'current-password' : 'new-password'" />
+        @if (mode() === 'register') { <small>Ít nhất 8 ký tự</small> }
+      </div>
+
+      @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+
+      <button class="btn-pink submit" type="submit" [disabled]="busy()">
+        {{ busy() ? 'Đang xử lý…' : mode() === 'login' ? 'Vào phòng hát' : 'Tạo tài khoản' }}
+      </button>
+    </form>
+  </section>
+</main>

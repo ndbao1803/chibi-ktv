@@ -1,0 +1,14 @@
+# Local PostgreSQL for development: `pnpm db:up`
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ktv
+      POSTGRES_PASSWORD: ktv
+      POSTGRES_DB: ktv
+    ports:
+      - "5432:5432"
+    volumes:
+      - ktv-db:/var/lib/postgresql/data
+volumes:
+  ktv-db:
