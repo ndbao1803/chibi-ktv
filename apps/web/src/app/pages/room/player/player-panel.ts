@@ -142,7 +142,9 @@ export class PlayerPanel implements OnDestroy {
     const fresh = sp && performance.now() - sp.receivedAt < SINGER_POSITION_MAX_AGE_MS && sp.msg.rev === p.rev;
     const mode: SyncMode = role === 'listener' && fresh && this.voice.hearingSinger() ? 'follow' : 'server';
     const target =
-      mode === 'follow' ? followerTarget(sp!.msg, now, this.voice.voiceDelaySec()) : expectedPosition(p, now);
+      mode === 'follow'
+        ? followerTarget(sp!.msg, now, this.voice.voiceDelaySec(), this.voice.manualOffsetMs() / 1000)
+        : expectedPosition(p, now);
 
     if (!player.isPlaying()) player.play();
     const err = target - pos;

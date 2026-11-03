@@ -15,12 +15,20 @@ export const SINGER_POSITION_MAX_AGE_MS = 2000;
 
 /**
  * Where my music should be right now when following the singer:
- * the singer's position, moved forward by the time since they read it, minus how late their voice reaches me.
+ * the singer's position, moved forward by the time since they read it, minus
+ *  - how late their voice reaches me (network + jitter buffer),
+ *  - how late the singer hears their own music and how slow their mic is (msg.lagSec),
+ *  - my own fine-tune from the slider (positive = play the music later).
  */
-export function followerTarget(msg: SingerPosition, serverNowMs: number, voiceDelaySec: number): number {
+export function followerTarget(msg: SingerPosition, serverNowMs: number, voiceDelaySec: number, manualOffsetSec = 0): number {
   const sinceRead = msg.playing ? (serverNowMs - msg.atServerMs) / 1000 : 0;
-  return Math.max(0, msg.pos + sinceRead - voiceDelaySec);
+  return Math.max(0, msg.pos + sinceRead - voiceDelaySec - (msg.lagSec ?? 0) - manualOffsetSec);
 }
+
+/** Extra delay Bluetooth headphones add on the singer's side (typical 150–250 ms). */
+export const BLUETOOTH_LAG_SEC = 0.2;
+/** Range of the listener's fine-tune slider. */
+export const MANUAL_OFFSET_LIMIT_MS = 400;
 
 export type Correction = { kind: 'none'; rate: 1 } | { kind: 'rate'; rate: number } | { kind: 'seek'; to: number };
 
@@ -39,8 +47,9 @@ export interface CorrectionInput {
 /** Thresholds from the requirements: Y-04 (server mode) and Y-05 (follow mode). */
 export const RULES = {
   server: { seekAboveSec: 1.0, seekEveryMs: 10_000 },
-  // Tighter than the requirement's first draft (0.4 s): the learned seek lead keeps jumps accurate.
-  follow: { seekAboveSec: 0.25, seekEveryMs: 5_000 },
+  // YouTube can only jump. 0.15 s is about where people start to hear voice and music apart;
+  // jumps are limited to one every 8 s so the video does not stutter. The learned seek lead keeps them accurate.
+  follow: { seekAboveSec: 0.15, seekEveryMs: 8_000 },
   rate: { deadbandSec: 0.02, gain: 0.5, maxDelta: 0.05, seekAboveSec: 0.3 },
 } as const;
 

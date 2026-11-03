@@ -146,11 +146,10 @@ describe('Playback, stage and WebRTC relay (e2e)', () => {
     expect(p.updatedBy).toBe('Ca sĩ');
   });
 
-  it('accepts a YouTube link and rejects garbage', async () => {
-    expect(await a.emitWithAck(Events.playSet, { link: 'https://vimeo.com/1' })).toEqual({ ok: false, error: 'Link YouTube không hợp lệ' });
-    const seen = once<PlaybackState>(b, Events.playState);
-    expect(await a.emitWithAck(Events.playSet, { link: 'https://youtu.be/dQw4w9WgXcQ' })).toEqual({ ok: true });
-    expect((await seen).song).toMatchObject({ kind: 'youtube', id: 'dQw4w9WgXcQ' });
+  it('play:set rejects garbage and YouTube links alike (YouTube now goes through the queue)', async () => {
+    const rejected = { ok: false, error: 'Hãy dùng "Thêm vào danh sách" để hát YouTube' };
+    expect(await a.emitWithAck(Events.playSet, { link: 'https://vimeo.com/1' })).toEqual(rejected);
+    expect(await a.emitWithAck(Events.playSet, { link: 'https://youtu.be/dQw4w9WgXcQ' })).toEqual(rejected);
   });
 
   it('anyone can pause and resume; the name of who did it is shared', async () => {

@@ -36,61 +36,16 @@ export const CreateRoomInput = z.object({
 });
 export type CreateRoomInput = z.infer<typeof CreateRoomInput>;
 
+// Kept here (not moved to events.ts with the rest of room:join) because it needs `RoomCode`,
+// defined above: moving it would create a real circular value import at module-load time.
+export const RoomJoinInput = z.object({ code: RoomCode });
+export type RoomJoinInput = z.infer<typeof RoomJoinInput>;
+
 export interface RoomInfo {
   code: string;
   name: string;
   capacity: number;
   ownerName: string;
-}
-
-/* ---------- Realtime events (Socket.IO, namespace "/rt") ---------- */
-
-export const RT_NAMESPACE = '/rt';
-
-export const Events = {
-  /** client → server, ack: JoinAck */
-  roomJoin: 'room:join',
-  /** server → room: PresenceList */
-  roomPresence: 'room:presence',
-  /** client → server, ack: ClockPong */
-  clockPing: 'clock:ping',
-  /** client → server {link}, ack: Ack. Anyone may change the song in version 1 (no host). */
-  playSet: 'play:set',
-  /** client → server, ack: Ack */
-  playPause: 'play:pause',
-  /** client → server, ack: Ack */
-  playResume: 'play:resume',
-  /** server → room: PlaybackState */
-  playState: 'play:state',
-  /** client → server, ack: Ack. Go on stage (one singer in Phase 1). */
-  stageTake: 'stage:take',
-  /** client → server, ack: Ack */
-  stageLeave: 'stage:leave',
-  /** server → room: StageState */
-  stageState: 'stage:state',
-  /** client → server {to, data}; server → the target {from, data}. WebRTC connection setup. */
-  rtcSignal: 'rtc:signal',
-} as const;
-
-export type Ack = { ok: true } | { ok: false; error: string };
-
-export const RoomJoinInput = z.object({ code: RoomCode });
-export type RoomJoinInput = z.infer<typeof RoomJoinInput>;
-
-export type JoinAck =
-  | { ok: true; room: RoomInfo; playback: PlaybackState; stage: StageState }
-  | { ok: false; error: string };
-
-export interface PresenceMember {
-  userId: string;
-  displayName: string;
-}
-export type PresenceList = PresenceMember[];
-
-export const ClockPingInput = z.object({ t0: z.number() });
-export interface ClockPong {
-  t0: number;
-  server: number;
 }
 
 /* ---------- Songs ---------- */
@@ -163,37 +118,9 @@ export function expectedPosition(p: PlaybackState, serverNowMs: number): number 
 /** Lead time before a new song starts, so every browser has time to load it. */
 export const START_LEAD_MS = 2500;
 
-/* ---------- Stage + voice ---------- */
+/* ---------- Other modules (split out to keep each file ≤200 lines) ---------- */
 
-export interface StageState {
-  singerId: string | null;
-  singerName: string | null;
-}
-
-export const RtcSignalInput = z.object({
-  to: z.string().uuid(),
-  data: z.union([
-    z.object({ type: z.enum(['offer', 'answer']), sdp: z.string().max(20_000) }),
-    z.object({ type: z.literal('ice'), candidate: z.any() }),
-  ]),
-});
-export type RtcSignalData = z.infer<typeof RtcSignalInput>['data'];
-export interface RtcSignalFromServer {
-  from: string;
-  data: RtcSignalData;
-}
-
-/**
- * Sent by the singer to every listener over the WebRTC data channel, about 4 times a second (Y-05).
- * `atServerMs` is the singer's estimate of server time when `pos` was read.
- */
-export interface SingerPosition {
-  pos: number;
-  atServerMs: number;
-  playing: boolean;
-  rev: number;
-}
-
-export interface IceServersResponse {
-  iceServers: { urls: string | string[]; username?: string; credential?: string }[];
-}
+export * from './events.js';
+export * from './queue.js';
+export * from './turn.js';
+export * from './skip.js';

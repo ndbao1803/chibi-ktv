@@ -4,16 +4,19 @@ import {
   MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import type { Namespace, Socket } from 'socket.io';
+import type { Namespace } from 'socket.io';
 import {
   ClockPingInput,
   Events,
   parseYouTubeId,
   PlaySetInput,
+  QueueAddInput,
+  QueueRemoveInput,
   RoomJoinInput,
   RT_NAMESPACE,
   RtcSignalInput,
@@ -23,35 +26,33 @@ import {
   type ClockPong,
   type JoinAck,
   type RtcSignalFromServer,
+  type SkipState,
 } from '@ktv/shared';
-import { AuthService, type TokenUser } from '../auth/auth.service.js';
+import { AuthService } from '../auth/auth.service.js';
 import { AUTH_COOKIE, readCookie } from '../auth/auth.cookie.js';
 import { YouTubeService } from '../youtube/youtube.service.js';
 import { RoomsService } from './rooms.service.js';
-import { RoomState } from './room-state.js';
+import { RoomLiveService, channel } from './room-live.service.js';
+import { leaveCurrentRoom, roomContext, type KtvSocket } from './socket-session.js';
 
-interface SocketData {
-  user: TokenUser;
-  roomCode?: string;
-}
-type KtvSocket = Socket & { data: Partial<SocketData> };
-
-const channel = (code: string) => `room:${code}`;
-/** An empty room keeps its song and state this long, so a refresh does not reset the night (R-10). */
-const EMPTY_ROOM_TTL_MS = 30 * 60_000;
+// TODO phase 03: a real SkipState (zero votes, needed computed from current membership).
+const EMPTY_SKIP: SkipState = { have: 0, needed: 1, voterNames: [], rev: 0 };
 
 @WebSocketGateway({ namespace: RT_NAMESPACE })
-export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit {
   @WebSocketServer() private ns!: Namespace;
   private readonly log = new Logger(RoomsGateway.name);
-  private readonly live = new Map<string, RoomState>();
-  private readonly cleanup = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(
     private readonly auth: AuthService,
     private readonly rooms: RoomsService,
     private readonly youtube: YouTubeService,
+    private readonly live: RoomLiveService,
   ) {}
+
+  afterInit(ns: Namespace) {
+    this.live.attach(ns);
+  }
 
   /** Only logged-in users may connect: the same cookie as the website is checked here. */
   async handleConnection(client: KtvSocket) {
@@ -65,7 +66,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   handleDisconnect(client: KtvSocket) {
-    this.leaveCurrentRoom(client);
+    leaveCurrentRoom(this.live, client);
   }
 
   /* ---------- joining ---------- */
@@ -79,16 +80,16 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const room = await this.rooms.findByCode(parsed.data.code);
     if (!room) return { ok: false, error: 'Không tìm thấy phòng' };
-    const state = this.stateFor(room.code);
+    const state = this.live.stateFor(room.code);
     if (!state.has(user.id) && state.size >= room.capacity) return { ok: false, error: 'Phòng đã đầy' };
 
-    if (client.data.roomCode !== room.code) this.leaveCurrentRoom(client);
+    if (client.data.roomCode !== room.code) leaveCurrentRoom(this.live, client);
     client.data.roomCode = room.code;
     await client.join(channel(room.code));
     state.addSocket(user.id, user.displayName, client.id);
-    this.emitPresence(state);
+    this.live.emitPresence(state);
     this.log.log(`${user.displayName} joined ${room.code}`);
-    return { ok: true, room, playback: state.playback, stage: state.stage };
+    return { ok: true, room, playback: state.playback, stage: state.stage, queue: state.queue.state(), skip: EMPTY_SKIP };
   }
 
   /** Clock sync (Y-03): the client measures round-trip time and offset. */
@@ -99,60 +100,85 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { t0: parsed.data.t0, server: Date.now() };
   }
 
-  /* ---------- playback: anyone in the room may change it (no host in version 1) ---------- */
+  /* ---------- playback: the click track only; YouTube songs go through the queue (Y-12) ---------- */
 
   @SubscribeMessage(Events.playSet)
-  async playSet(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Promise<Ack> {
-    const ctx = this.context(client);
+  playSet(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
     if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
     const parsed = PlaySetInput.safeParse(body);
     if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'Link không hợp lệ' };
+    if (parsed.data.link !== TEST_TRACK_LINK) return { ok: false, error: 'Hãy dùng "Thêm vào danh sách" để hát YouTube' };
 
-    if (parsed.data.link === TEST_TRACK_LINK) {
-      ctx.state.setSong({ kind: 'test', id: 'click', title: 'Nhạc thử nhịp (120 BPM)', durationSec: TEST_TRACK_SECONDS }, ctx.user.displayName);
-    } else {
-      const id = parseYouTubeId(parsed.data.link);
-      if (!id) return { ok: false, error: 'Link YouTube không hợp lệ' };
-      const check = await this.youtube.check(id);
-      if (!check.ok) return check;
-      ctx.state.setSong(check.song, ctx.user.displayName);
-    }
-    this.emitPlayback(ctx.state);
+    ctx.state.setSong({ kind: 'test', id: 'click', title: 'Nhạc thử nhịp (120 BPM)', durationSec: TEST_TRACK_SECONDS }, ctx.user.displayName);
+    this.live.emitPlayback(ctx.state);
     return { ok: true };
   }
 
   @SubscribeMessage(Events.playPause)
   pause(@ConnectedSocket() client: KtvSocket): Ack {
-    const ctx = this.context(client);
+    const ctx = roomContext(this.live, client);
     if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
-    if (ctx.state.pause(ctx.user.displayName)) this.emitPlayback(ctx.state);
+    if (ctx.state.pause(ctx.user.displayName)) this.live.emitPlayback(ctx.state);
     return { ok: true };
   }
 
   @SubscribeMessage(Events.playResume)
   resume(@ConnectedSocket() client: KtvSocket): Ack {
-    const ctx = this.context(client);
+    const ctx = roomContext(this.live, client);
     if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
-    if (ctx.state.resume(ctx.user.displayName)) this.emitPlayback(ctx.state);
+    if (ctx.state.resume(ctx.user.displayName)) this.live.emitPlayback(ctx.state);
     return { ok: true };
   }
 
-  /* ---------- stage ---------- */
+  /* ---------- queue: anyone may add; only the owner may remove their own entry (Q-01, Q-05, Q-06) ---------- */
+
+  @SubscribeMessage(Events.queueAdd)
+  async queueAdd(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Promise<Ack & { entryId?: string }> {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = QueueAddInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'Link không hợp lệ' };
+    const id = parseYouTubeId(parsed.data.link);
+    if (!id) return { ok: false, error: 'Link YouTube không hợp lệ' };
+    const check = await this.youtube.check(id);
+    if (!check.ok) return check;
+
+    const added = ctx.state.queue.add(check.song, ctx.user.id, ctx.user.displayName, Date.now());
+    if (!added.ok) return added;
+    // A free queue starts singing right away (S-01); either way, `queue:state` always goes out.
+    this.live.apply(ctx.state, { ...ctx.state.startTurnIfIdle(), queue: true });
+    this.log.log(`${ctx.user.displayName} added a song in ${ctx.state.code}`);
+    return { ok: true, entryId: added.entryId };
+  }
+
+  @SubscribeMessage(Events.queueRemove)
+  queueRemove(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = QueueRemoveInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'Mã bài hát không hợp lệ' };
+    const removed = ctx.state.queue.removeOwn(parsed.data.entryId, ctx.user.id);
+    if (removed.ok) this.live.emitQueue(ctx.state);
+    return removed;
+  }
+
+  /* ---------- stage: a turn puts its singer here (S-01); `stage:take` still works for an empty stage ---------- */
 
   @SubscribeMessage(Events.stageTake)
   takeStage(@ConnectedSocket() client: KtvSocket): Ack {
-    const ctx = this.context(client);
+    const ctx = roomContext(this.live, client);
     if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
     const r = ctx.state.takeStage(ctx.user.id);
-    if (r.ok) this.emitStage(ctx.state);
+    if (r.ok) this.live.emitStage(ctx.state);
     return r;
   }
 
   @SubscribeMessage(Events.stageLeave)
   leaveStage(@ConnectedSocket() client: KtvSocket): Ack {
-    const ctx = this.context(client);
+    const ctx = roomContext(this.live, client);
     if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
-    if (ctx.state.leaveStage(ctx.user.id)) this.emitStage(ctx.state);
+    this.live.apply(ctx.state, ctx.state.leaveStage(ctx.user.id));
     return { ok: true };
   }
 
@@ -160,7 +186,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage(Events.rtcSignal)
   signal(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
-    const ctx = this.context(client);
+    const ctx = roomContext(this.live, client);
     if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
     const parsed = RtcSignalInput.safeParse(body);
     if (!parsed.success) return { ok: false, error: 'bad signal' };
@@ -170,57 +196,5 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const msg: RtcSignalFromServer = { from: ctx.user.id, data: parsed.data.data };
     this.ns.to(target).emit(Events.rtcSignal, msg);
     return { ok: true };
-  }
-
-  /* ---------- helpers ---------- */
-
-  private context(client: KtvSocket) {
-    const { user, roomCode } = client.data;
-    const state = roomCode ? this.live.get(roomCode) : undefined;
-    return user && state?.has(user.id) ? { user, state } : null;
-  }
-
-  private stateFor(code: string): RoomState {
-    clearTimeout(this.cleanup.get(code));
-    this.cleanup.delete(code);
-    let s = this.live.get(code);
-    if (!s) {
-      s = new RoomState(code);
-      this.live.set(code, s);
-    }
-    return s;
-  }
-
-  private leaveCurrentRoom(client: KtvSocket) {
-    const { roomCode: code, user } = client.data;
-    if (!code || !user) return;
-    void client.leave(channel(code));
-    client.data.roomCode = undefined;
-    const state = this.live.get(code);
-    if (!state) return;
-    const wasSinger = state.stage.singerId === user.id;
-    if (state.removeSocket(user.id, client.id)) {
-      this.emitPresence(state);
-      if (wasSinger) this.emitStage(state);
-    }
-    if (state.isEmpty) {
-      this.cleanup.set(
-        code,
-        setTimeout(() => {
-          if (this.live.get(code)?.isEmpty) this.live.delete(code);
-          this.cleanup.delete(code);
-        }, EMPTY_ROOM_TTL_MS).unref(),
-      );
-    }
-  }
-
-  private emitPresence(s: RoomState) {
-    this.ns.to(channel(s.code)).emit(Events.roomPresence, s.presence());
-  }
-  private emitPlayback(s: RoomState) {
-    this.ns.to(channel(s.code)).emit(Events.playState, s.playback);
-  }
-  private emitStage(s: RoomState) {
-    this.ns.to(channel(s.code)).emit(Events.stageState, s.stage);
   }
 }

@@ -118,7 +118,8 @@ apps/web/             Angular
 
 1. **One clock.** Every browser measures its offset to the server clock (5 pings, keep the fastest). The server says “this song was at 0 s at server time T”.
 2. **Nobody singing:** each player follows server time. YouTube jumps only when more than 1 s off (at most every 10 s); the click track nudges its speed by up to 5%.
-3. **Someone singing:** the singer's browser sends its exact music position 4 times a second over the WebRTC data channel. Each listener measures how late the voice arrives (half the round trip + jitter buffer + ~30 ms) and plays the music that much later than the singer. YouTube jumps when more than 0.25 s off and learns how long its jumps take.
+3. **Someone singing:** the singer's browser sends its exact music position 4 times a second over the WebRTC data channel. Each listener plays the music later than the singer by: how late the voice arrives (half the round trip + jitter buffer + ~20 ms), plus how late the singer hears their own music and how slow their mic is (sound card latency, +0.2 s for Bluetooth headphones; the singer's browser measures and sends this), plus the listener's own fine-tune slider. YouTube jumps when more than 0.15 s off (at most every 8 s) and learns how long its jumps take.
+5. **Fine-tune by ear:** if the singer still sounds late or early, each listener can drag "Giọng trễ hơn nhạc? Kéo sang phải" (±400 ms). It is saved in that browser.
 4. **Singer audio:** with wired headphones the mic is sent raw (no echo cancellation or noise suppression, which damage singing), Opus mono, DTX off, up to 96 kbps.
 
 Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length, embeddable, blocked in Vietnam), and `CF_TURN_KEY_ID` + `CF_TURN_KEY_TOKEN` (Cloudflare's free TURN relay, for friends behind strict networks). Without them, any valid link plays and free STUN servers are used.

@@ -13,7 +13,7 @@
     "build": "pnpm --filter @ktv/shared build && pnpm --filter server build && pnpm --filter web build",
     "dev:server": "pnpm --filter @ktv/shared build && pnpm --filter server start:dev",
     "dev:web": "pnpm --filter web start",
-    "test": "pnpm --filter @ktv/shared build && pnpm --filter server test && pnpm --filter server test:e2e",
+    "test": "pnpm --filter @ktv/shared test && pnpm --filter server test && pnpm --filter server test:e2e",
     "start": "node apps/server/dist/main.js",
     "test:sync": "node e2e/sync.mjs"
   },

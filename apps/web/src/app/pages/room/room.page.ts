@@ -1,7 +1,7 @@
 import { Component, computed, effect, ElementRef, inject, input, OnDestroy, OnInit, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { TEST_TRACK_LINK } from '@ktv/shared';
+import { TEST_TRACK_LINK, type HeadphoneKind } from '@ktv/shared';
 import { AuthService } from '../../core/auth.service';
 import { RealtimeService } from './realtime.service';
 import { VoiceService } from './voice/voice.service';
@@ -82,15 +82,19 @@ export class RoomPage implements OnInit, OnDestroy {
     if (!ack.ok) this.actionError.set(ack.error);
   }
 
-  /** S-05: singers confirm wired headphones first; without them, echo cancellation stays on. */
-  async sing(headphones: boolean) {
+  /** S-05: singers say which headphones they use; without any, echo cancellation stays on. */
+  async sing(kind: HeadphoneKind) {
     this.askHeadphones.set(false);
     this.busy.set(true);
-    const err = await this.voice.startSinging(headphones);
+    const err = await this.voice.startSinging(kind);
     this.busy.set(false);
     if (err) this.actionError.set(err);
-    else if (!headphones) this.flash('Không có tai nghe: nhạc có thể lọt vào micro. Đeo tai nghe có dây sẽ hay hơn.');
+    else if (kind === 'none') this.flash('Không có tai nghe: nhạc có thể lọt vào micro. Đeo tai nghe có dây sẽ hay hơn.');
+    else if (kind === 'bluetooth') this.flash('Tai nghe Bluetooth: đã bù thêm 0,2 giây cho người nghe.');
   }
+
+  /** Listener fine-tune: positive = the music plays later, so the voice lands earlier against it. */
+  protected singerLagMs = computed(() => Math.round((this.voice.singerPos()?.msg.lagSec ?? 0) * 1000));
   async stopSinging() {
     await this.voice.stopSinging();
   }

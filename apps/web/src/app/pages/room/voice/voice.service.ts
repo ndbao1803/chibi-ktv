@@ -1,11 +1,11 @@
 import { computed, effect, inject, Injectable, OnDestroy, signal, untracked } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import type { IceServersResponse, PresenceList, RtcSignalFromServer, SingerPosition, StageState } from '@ktv/shared';
+import type { HeadphoneKind, IceServersResponse, PresenceList, RtcSignalFromServer, SingerPosition, StageState } from '@ktv/shared';
 import { AuthService } from '../../../core/auth.service';
 import { RealtimeService } from '../realtime.service';
 import { AudioService } from '../audio.service';
-import { ema } from '../sync/sync-math';
+import { BLUETOOTH_LAG_SEC, ema, MANUAL_OFFSET_LIMIT_MS } from '../sync/sync-math';
 import { tuneOpus } from './opus';
 
 interface Peer {
@@ -17,8 +17,17 @@ interface Peer {
   statsPrev?: { jbd: number; count: number };
 }
 
-/** Capture, encoding and playout time not visible in WebRTC stats (rough constant). */
-const FIXED_AUDIO_PATH_SEC = 0.03;
+const OFFSET_KEY = 'ktv.voiceOffsetMs';
+function readOffset(): number {
+  try {
+    return Number(localStorage.getItem(OFFSET_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Encoding and playout time not visible in WebRTC stats (rough constant). */
+const FIXED_AUDIO_PATH_SEC = 0.02;
 
 /**
  * Peer-to-peer voice (free, no media server). The singer sends their mic to every listener,
@@ -47,9 +56,15 @@ export class VoiceService implements OnDestroy {
   readonly voiceDelaySec = signal(0.15);
   /** Listener: the singer's voice is playing here. */
   readonly hearingSinger = signal(false);
+  /** Listener: the browser blocked autoplay (common on Safari/iOS); needs a real tap to retry. */
+  readonly needsTap = signal(false);
   /** Singer: how many listeners are connected. */
   readonly listenersConnected = signal(0);
   readonly error = signal('');
+  /** Singer: how late I hear my own music + my mic delay (s), sent to listeners. */
+  readonly singerLagSec = signal(0);
+  /** Listener: my fine-tune (ms, positive = music later), remembered in this browser. */
+  readonly manualOffsetMs = signal(readOffset());
 
   constructor() {
     this.rt.onSignal = (m) => void this.onSignal(m);
@@ -61,7 +76,8 @@ export class VoiceService implements OnDestroy {
   }
 
   /** Go on stage: ask for the mic first, then claim the stage (S-02, S-05). */
-  async startSinging(headphones: boolean): Promise<string | null> {
+  async startSinging(kind: HeadphoneKind): Promise<string | null> {
+    const headphones = kind !== 'none';
     try {
       this.mic = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -77,6 +93,7 @@ export class VoiceService implements OnDestroy {
     }
     this.mic.getAudioTracks().forEach((t) => (t.contentHint = 'music'));
     this.micMeter = this.audio.meter(this.mic);
+    this.singerLagSec.set(this.measureSingerLag(kind));
     const ack = await this.rt.takeStage();
     if (!ack.ok) {
       this.stopMic();
@@ -92,8 +109,23 @@ export class VoiceService implements OnDestroy {
 
   /** Singer: send my music position to every listener (about 4 times a second). */
   sendPosition(msg: SingerPosition) {
-    const text = JSON.stringify(msg);
+    const text = JSON.stringify({ ...msg, lagSec: this.singerLagSec() });
     for (const p of this.peers.values()) if (p.dc?.readyState === 'open') p.dc.send(text);
+  }
+
+  /** Listener: retry playing the singer's voice after a tap (Safari/iOS blocks autoplay outside a user gesture). */
+  retryAudio(): void {
+    for (const p of this.peers.values()) if (p.audio) void this.playAudio(p.audio);
+  }
+
+  private async playAudio(el: HTMLAudioElement): Promise<void> {
+    try {
+      await el.play();
+      this.needsTap.set(false);
+    } catch {
+      this.needsTap.set(true);
+      this.error.set('Bấm để nghe được ca sĩ.');
+    }
   }
 
   /** Loudness of whoever is singing, for the chibi's mouth (A-04). */
@@ -101,6 +133,28 @@ export class VoiceService implements OnDestroy {
     if (this.role() === 'singer') return this.micMeter?.level() ?? 0;
     const singer = this.rt.stage().singerId;
     return (singer && this.peers.get(singer)?.meter?.level()) || 0;
+  }
+
+  setManualOffset(ms: number) {
+    const v = Math.max(-MANUAL_OFFSET_LIMIT_MS, Math.min(MANUAL_OFFSET_LIMIT_MS, Math.round(ms)));
+    this.manualOffsetMs.set(v);
+    try {
+      localStorage.setItem(OFFSET_KEY, String(v));
+    } catch {
+      /* private window: keep it for this visit only */
+    }
+  }
+
+  /**
+   * The singer hears the music late by the sound card's output latency (plus ~0.2 s with Bluetooth),
+   * and the mic adds its own input latency. Both push the voice behind the music.
+   */
+  private measureSingerLag(kind: HeadphoneKind): number {
+    const ctx = this.audio.ctx;
+    const output = (ctx.outputLatency || 0) + (ctx.baseLatency || 0);
+    const settings = this.mic?.getAudioTracks()[0]?.getSettings() as MediaTrackSettings & { latency?: number };
+    const input = typeof settings?.latency === 'number' ? settings.latency : 0.01;
+    return output + input + (kind === 'bluetooth' ? BLUETOOTH_LAG_SEC : 0);
   }
 
   ngOnDestroy(): void {
@@ -191,7 +245,7 @@ export class VoiceService implements OnDestroy {
       const el = new Audio();
       el.autoplay = true;
       el.srcObject = stream;
-      void el.play().catch(() => this.error.set('Bấm “Vào phòng” để nghe được ca sĩ.'));
+      void this.playAudio(el);
       peer.audio = el;
       peer.meter = this.audio.meter(stream);
       this.hearingSinger.set(true);
@@ -252,7 +306,10 @@ export class VoiceService implements OnDestroy {
     p.dc?.close();
     p.pc.close();
     this.peers.delete(id);
-    if (id === this.rt.stage().singerId || this.role() !== 'listener') this.hearingSinger.set(false);
+    if (id === this.rt.stage().singerId || this.role() !== 'listener') {
+      this.hearingSinger.set(false);
+      this.needsTap.set(false);
+    }
   }
 
   private closeAll() {

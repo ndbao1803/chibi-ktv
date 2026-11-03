@@ -46,9 +46,20 @@
     } @else if (rt.stage().singerId) {
       <span class="listening">
         🎤 {{ rt.stage().singerName }} đang hát
-        @if (voice.hearingSinger()) { · giọng tới trễ {{ (voice.voiceDelaySec() * 1000).toFixed(0) }} ms }
-        @else { · đang kết nối giọng… }
+        @if (voice.hearingSinger()) {
+          · giọng tới trễ {{ (voice.voiceDelaySec() * 1000).toFixed(0) }} ms
+          @if (singerLagMs() > 0) { + {{ singerLagMs() }} ms phía ca sĩ }
+        } @else { · đang kết nối giọng… }
       </span>
+      @if (voice.hearingSinger()) {
+        <label class="tune" for="tune">
+          <span>Giọng trễ hơn nhạc? Kéo sang phải</span>
+          <input id="tune" type="range" min="-400" max="400" step="10" [value]="voice.manualOffsetMs()"
+                 (input)="voice.setManualOffset(+$any($event.target).value)" />
+          <b>{{ voice.manualOffsetMs() > 0 ? '+' : '' }}{{ voice.manualOffsetMs() }} ms</b>
+          @if (voice.manualOffsetMs() !== 0) { <button type="button" class="reset" (click)="voice.setManualOffset(0)">Về 0</button> }
+        </label>
+      }
     } @else {
       <button class="btn-pink" (click)="askHeadphones.set(true)" [disabled]="busy()">🎤 Lên hát</button>
     }
@@ -64,13 +75,21 @@
 
 @if (toast()) { <div class="hud toast panel" role="status">{{ toast() }}</div> }
 
+@if (voice.needsTap()) {
+  <div class="hud gate">
+    <button class="btn-pink enter" (click)="voice.retryAudio()">Bấm để nghe ca sĩ</button>
+    <p>Trình duyệt chặn âm thanh tự động phát</p>
+  </div>
+}
+
 @if (askHeadphones()) {
   <div class="hud dialog panel" role="dialog" aria-labelledby="hp-title">
-    <h2 id="hp-title">Bạn có đeo tai nghe có dây không?</h2>
-    <p>Với tai nghe, giọng hát được gửi đi nguyên chất. Không có tai nghe, nhạc từ loa có thể lọt vào micro nên phải bật lọc tiếng vọng. Tai nghe Bluetooth chậm hơn khoảng 0,2 giây.</p>
+    <h2 id="hp-title">Bạn đang dùng tai nghe gì?</h2>
+    <p>Với tai nghe, giọng hát được gửi đi nguyên chất. Không có tai nghe, nhạc từ loa có thể lọt vào micro nên phải bật lọc tiếng vọng. Tai nghe Bluetooth chậm hơn khoảng 0,2 giây; ứng dụng sẽ bù phần này cho người nghe.</p>
     <div class="row">
-      <button class="btn-ghost" (click)="sing(false)">Không có tai nghe</button>
-      <button class="btn-pink" (click)="sing(true)">Có, tai nghe có dây</button>
+      <button class="btn-pink" (click)="sing('wired')">Có, tai nghe có dây</button>
+      <button class="btn-ghost" (click)="sing('bluetooth')">Tai nghe Bluetooth</button>
+      <button class="btn-ghost" (click)="sing('none')">Không có tai nghe</button>
     </div>
     <button class="link" (click)="askHeadphones.set(false)">Huỷ</button>
   </div>
