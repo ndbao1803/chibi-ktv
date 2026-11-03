@@ -27,7 +27,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ktv/shared build
+      - name: Shared — build and tests
+        run: pnpm --filter @ktv/shared test
       - name: Server — lint, type check, unit + e2e tests
         working-directory: apps/server
         run: |
@@ -40,3 +41,36 @@ jobs:
         run: |
           pnpm build
           pnpm test --watch=false
+
+  sync:
+    # T-01: real browsers in one room, one singing with a fake mic; fails if listeners drift > 150 ms (p90).
+    runs-on: ubuntu-latest
+    needs: test
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ktv
+          POSTGRES_PASSWORD: ktv
+          POSTGRES_DB: ktv
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ktv" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://ktv:ktv@localhost:5432/ktv
+      JWT_SECRET: ci-secret-that-is-long-enough
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Start the app
+        run: |
+          pnpm start &
+          for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break; sleep 1; done
+      - run: pnpm test:sync

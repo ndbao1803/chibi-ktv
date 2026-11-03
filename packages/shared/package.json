@@ -6,9 +6,19 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
-  "scripts": { "build": "tsc -p tsconfig.json" },
-  "dependencies": { "zod": "^4.6.7" },
-  "devDependencies": { "typescript": "~6.0.2" }
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.json && node --test test/shared.test.mjs"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  }
 }

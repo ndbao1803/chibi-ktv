@@ -1,6 +1,19 @@
 import { Injectable, OnDestroy, signal } from '@angular/core';
 import { io, type Socket } from 'socket.io-client';
-import { Events, RT_NAMESPACE, type ClockPong, type JoinAck, type PresenceList, type RoomInfo } from '@ktv/shared';
+import {
+  EMPTY_PLAYBACK,
+  Events,
+  RT_NAMESPACE,
+  type Ack,
+  type ClockPong,
+  type JoinAck,
+  type PlaybackState,
+  type PresenceList,
+  type RoomInfo,
+  type RtcSignalData,
+  type RtcSignalFromServer,
+  type StageState,
+} from '@ktv/shared';
 
 export interface ClockStats {
   offsetMs: number; // server time = local time + offset
@@ -19,17 +32,32 @@ export class RealtimeService implements OnDestroy {
   readonly connected = signal(false);
   readonly room = signal<RoomInfo | null>(null);
   readonly members = signal<PresenceList>([]);
+  readonly playback = signal<PlaybackState>(EMPTY_PLAYBACK);
+  readonly stage = signal<StageState>({ singerId: null, singerName: null });
   readonly error = signal('');
   readonly clock = signal<ClockStats | null>(null);
+  /** Short messages such as "Tuấn đã tạm dừng". */
+  readonly notice = signal('');
+  /** The voice service listens here for WebRTC setup messages. */
+  onSignal: (m: RtcSignalFromServer) => void = () => {};
+
+  /** Best estimate of the server's clock right now. */
+  serverNow(): number {
+    return Date.now() + (this.clock()?.offsetMs ?? 0);
+  }
 
   async join(code: string): Promise<void> {
     this.socket = io(RT_NAMESPACE, { transports: ['websocket', 'polling'], withCredentials: true });
     this.socket.on(Events.roomPresence, (list: PresenceList) => this.members.set(list));
+    this.socket.on(Events.playState, (p: PlaybackState) => this.applyPlayback(p));
+    this.socket.on(Events.stageState, (s: StageState) => this.stage.set(s));
+    this.socket.on(Events.rtcSignal, (m: RtcSignalFromServer) => this.onSignal(m));
     this.socket.on('auth:error', (msg: string) => this.error.set(msg));
     this.socket.on('disconnect', () => this.connected.set(false));
-    // On every (re)connect: join the room again and re-measure the clock.
+    // On every (re)connect: measure the clock, then join the room again (N-12).
     this.socket.on('connect', async () => {
       this.connected.set(true);
+      await this.syncClock();
       const ack = (await this.socket!.emitWithAck(Events.roomJoin, { code })) as JoinAck;
       if (!ack.ok) {
         this.error.set(ack.error);
@@ -37,15 +65,34 @@ export class RealtimeService implements OnDestroy {
       }
       this.error.set('');
       this.room.set(ack.room);
-      await this.syncClock();
+      this.playback.set(ack.playback);
+      this.stage.set(ack.stage);
     });
     this.clockTimer = setInterval(() => void this.syncClock(), 30_000);
   }
 
+  setSong(link: string): Promise<Ack> {
+    return this.emit(Events.playSet, { link });
+  }
+  pause(): Promise<Ack> {
+    return this.emit(Events.playPause);
+  }
+  resume(): Promise<Ack> {
+    return this.emit(Events.playResume);
+  }
+  takeStage(): Promise<Ack> {
+    return this.emit(Events.stageTake);
+  }
+  leaveStage(): Promise<Ack> {
+    return this.emit(Events.stageLeave);
+  }
+  signal(to: string, data: RtcSignalData): void {
+    this.socket?.emit(Events.rtcSignal, { to, data });
+  }
+
   /**
-   * NTP-style clock sync (requirement Y-03): ask the server for its time 5 times and
-   * keep the sample with the shortest round trip; it has the least network noise.
-   * This offset is what later keeps everyone's YouTube video in step.
+   * NTP-style clock sync (Y-03): ask the server for its time 5 times and keep the sample
+   * with the shortest round trip; it has the least network noise.
    */
   async syncClock(samples = 5): Promise<void> {
     if (!this.socket?.connected) return;
@@ -64,5 +111,21 @@ export class RealtimeService implements OnDestroy {
   ngOnDestroy(): void {
     clearInterval(this.clockTimer);
     this.socket?.disconnect();
+  }
+
+  private applyPlayback(p: PlaybackState) {
+    const prev = this.playback();
+    if (p.rev < prev.rev) return; // stale
+    this.playback.set(p);
+    if (p.updatedBy) {
+      const what =
+        p.song?.id !== prev.song?.id ? `chọn bài “${p.song?.title}”` : p.paused ? 'tạm dừng' : 'phát tiếp';
+      this.notice.set(`${p.updatedBy} đã ${what}`);
+    }
+  }
+
+  private async emit(event: string, payload?: unknown): Promise<Ack> {
+    if (!this.socket?.connected) return { ok: false, error: 'Mất kết nối, đang thử lại…' };
+    return (await this.socket.emitWithAck(event, payload)) as Ack;
   }
 }

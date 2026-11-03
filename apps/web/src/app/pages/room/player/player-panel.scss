@@ -1,0 +1,30 @@
+:host { display: block; }
+.player { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+header { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+.title { color: var(--fg); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* P-04: flat, untransformed, at least 200 px tall at every width. */
+.screen { width: 100%; aspect-ratio: 16 / 9; min-height: 200px; background: #000; border-radius: 6px; overflow: hidden; }
+.screen ::ng-deep iframe { width: 100%; height: 100%; display: block; border: 0; }
+.metronome, .empty {
+  aspect-ratio: 16 / 9; min-height: 200px; border-radius: 6px;
+  background: radial-gradient(circle at 50% 40%, #2a0f3d, #0b0912);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 12px;
+}
+.empty { color: var(--muted); }
+.beats { display: flex; gap: 12px; }
+.beats i { width: 34px; height: 34px; border-radius: 50%; background: rgba(255, 255, 255, 0.1); transition: background 60ms; }
+.beats i.on { background: var(--cyan); box-shadow: 0 0 18px var(--cyan); }
+.beats i.one.on { background: var(--pink); box-shadow: 0 0 18px var(--pink); }
+.bar { font-family: var(--font-display); font-size: 20px; color: var(--gold); font-variant-numeric: tabular-nums; }
+.metronome p { margin: 0; font-size: 11.5px; color: var(--muted); }
+.status, .error { margin: 0; font-size: 12px; }
+.status { color: var(--gold); }
+footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vol { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
+.vol input { width: 100px; accent-color: var(--cyan); }
+.sync {
+  font-size: 11px; color: var(--good); border: 1px solid rgba(91, 224, 138, 0.4); border-radius: 999px;
+  padding: 3px 8px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.sync.follow { color: var(--cyan); border-color: rgba(51, 225, 237, 0.5); }

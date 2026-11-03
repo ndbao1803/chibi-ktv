@@ -2,7 +2,7 @@
 
 A 3D karaoke room for friends: chibi avatars on a neon KTV sofa, a synced YouTube video, one or two singers on stage, and everyone else cheering. Free to run.
 
-This repository is **Phase 0** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, a 3D room you can enter, live "who is online", and the clock sync that later keeps YouTube in step. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
+This repository covers **Phase 0 and Phase 1** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, and the hard part: everyone hears the song in step, and listeners hear the singer on the beat. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
 
 ## What works now
 
@@ -10,7 +10,15 @@ This repository is **Phase 0** of the [build plan](https://claude.ai/artifact/Lj
 - Create a room (8 or 16 seats) and get a 6-character code and an invite link.
 - Open the link on another device: it asks you to log in, then drops you into the same room.
 - Everyone in the room appears as a chibi on the sofa, and in the "Đang online" list.
-- The bottom bar shows your clock offset to the server and the round-trip delay (Phase 1 builds on this).
+- The bottom bar shows your clock offset to the server and the round-trip delay.
+
+**Phase 1 (sync):**
+
+- Paste a YouTube link and press **Phát**: it plays for everyone, starting at the same moment. Anyone can pause or resume, and a message says who did it (version 1 has no host).
+- **Nhạc thử nhịp** plays a built-in 120 BPM click track. Open the room on two laptops side by side: the clicks must sound together. No YouTube needed.
+- **🎤 Lên hát**: confirm headphones, allow the mic, and your chibi walks onto the stage. Your voice goes straight to each friend's browser (peer-to-peer WebRTC, free).
+- Listeners' music follows the singer, delayed by exactly as long as the voice takes to arrive, so voice and music line up. The video panel shows **Theo ca sĩ ±N ms** while following.
+- The singer's chibi mouth moves with the real voice.
 
 ## Tech stack, and what each piece teaches you
 
@@ -23,7 +31,11 @@ This repository is **Phase 0** of the [build plan](https://claude.ai/artifact/Lj
 | **PostgreSQL** | The database: users and rooms | `apps/server/src/db/schema.ts` |
 | **Drizzle ORM** | Type-safe SQL from TypeScript; migrations are plain SQL files | `apps/server/drizzle/` |
 | **argon2 + JWT cookie** | Password hashing and login sessions | `apps/server/src/auth` |
-| **Socket.IO** | Realtime: join a room, presence, clock pings | `rooms.gateway.ts`, `realtime.service.ts` |
+| **Socket.IO** | Realtime: join, presence, clock, playback, stage, WebRTC setup | `rooms.gateway.ts`, `realtime.service.ts` |
+| **WebRTC** | Peer-to-peer voice and a data channel for the singer's position | `apps/web/.../room/voice/voice.service.ts` |
+| **Web Audio** | The click track, and voice loudness for the chibi's mouth | `player/click-track.player.ts`, `audio.service.ts` |
+| **YouTube IFrame API** | The official player, in a flat panel nothing covers | `player/youtube.player.ts` |
+| **Sync maths** | Pure functions with unit tests: targets, jumps, speed nudges | `room/sync/sync-math.ts` |
 | **Zod** | One set of validation rules used by both browser and server | `packages/shared/src/index.ts` |
 | **Vitest + Supertest** | Tests that call the real API against a real database | `apps/server/test` |
 | **Docker Compose** | PostgreSQL on your laptop | `docker-compose.yml` |
@@ -36,7 +48,7 @@ You need Node.js 22+, Docker Desktop, and pnpm (`corepack enable` turns it on).
 ```bash
 pnpm install
 pnpm db:up                                  # start PostgreSQL in Docker
-cp .env.example apps/server/.env            # then edit JWT_SECRET
+cp .env.example apps/server/.env            # then edit JWT_SECRET (optional keys inside)
 ```
 
 Start the server and the website in two terminals:
@@ -61,6 +73,17 @@ pnpm --filter web test --watch=false               # Angular tests
 ```
 
 The e2e tests start the whole NestJS app, register real users in the test database, and connect real Socket.IO clients.
+
+### Sync test (T-01)
+
+With the app running (`pnpm build && pnpm start`), in a second terminal:
+
+```bash
+pnpm test:sync          # 1 singer + 2 listeners in headless Chrome, 25 s
+LISTENERS=5 SECONDS=60 pnpm test:sync
+```
+
+It prints, for each listener, how far its music is from where the singer's voice says it should be (p50 / p90 in ms) and the measured voice delay, and fails above 150 ms at p90. On one machine the result is about 2–17 ms p90 with a ~60 ms voice delay. That measures the sync logic; real networks and YouTube's own jumps add more, so also do the two-laptop test with real friends.
 
 ## Change the database
 
@@ -91,9 +114,17 @@ apps/web/             Angular
   src/app/pages/      login, lobby, room (3D scene + realtime service)
 ```
 
-## Next: Phase 1 (sync spike)
+## How the sync works
 
-- Flat YouTube player panel that follows server time
-- One singer's mic sent peer-to-peer (WebRTC) to listeners
-- Singer sends its video position; listeners follow it
-- Playwright test with several browsers measuring the voice-to-music offset
+1. **One clock.** Every browser measures its offset to the server clock (5 pings, keep the fastest). The server says “this song was at 0 s at server time T”.
+2. **Nobody singing:** each player follows server time. YouTube jumps only when more than 1 s off (at most every 10 s); the click track nudges its speed by up to 5%.
+3. **Someone singing:** the singer's browser sends its exact music position 4 times a second over the WebRTC data channel. Each listener measures how late the voice arrives (half the round trip + jitter buffer + ~30 ms) and plays the music that much later than the singer. YouTube jumps when more than 0.25 s off and learns how long its jumps take.
+4. **Singer audio:** with wired headphones the mic is sent raw (no echo cancellation or noise suppression, which damage singing), Opus mono, DTX off, up to 96 kbps.
+
+Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length, embeddable, blocked in Vietnam), and `CF_TURN_KEY_ID` + `CF_TURN_KEY_TOKEN` (Cloudflare's free TURN relay, for friends behind strict networks). Without them, any valid link plays and free STUN servers are used.
+
+## Next: Phase 2 (room and queue)
+
+- Song queue with turns, vote-skip, server-decided song end
+- Rejecting blocked videos when pasted, auto-skip on player errors
+- Reconnect keeps your seat; singer disconnect rule

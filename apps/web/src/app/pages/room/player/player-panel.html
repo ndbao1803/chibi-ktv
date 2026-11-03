@@ -1,0 +1,44 @@
+<section class="panel player" aria-label="Video">
+  <header>
+    <b class="title">{{ song()?.title ?? 'Chưa có bài' }}</b>
+    <span class="time">{{ time() }}</span>
+  </header>
+
+  <!-- The real YouTube player goes in here. Nothing is ever drawn on top of it. -->
+  <div class="screen" #host [hidden]="song()?.kind !== 'youtube'"></div>
+
+  @if (song()?.kind === 'test') {
+    <div class="metronome" aria-live="off">
+      <div class="beats">
+        @for (b of [0, 1, 2, 3]; track b) {
+          <i [class.on]="beat() % 4 === b" [class.one]="b === 0"></i>
+        }
+      </div>
+      <div class="bar">Ô nhịp {{ beat() < 0 ? 0 : (beat() - (beat() % 4)) / 4 + 1 }}</div>
+      <p>Mở trên 2 máy cạnh nhau: tiếng click phải vang cùng lúc.</p>
+    </div>
+  }
+  @if (!song()) {
+    <div class="empty">Dán link YouTube bên dưới, hoặc bấm “Nhạc thử nhịp”.</div>
+  }
+
+  <!-- Status lives outside the player (Y-07). -->
+  @if (errorText()) {
+    <p class="error" role="alert">{{ errorText() }}</p>
+  } @else if (status()) {
+    <p class="status">{{ status() }}</p>
+  }
+
+  <footer>
+    <label class="vol">
+      <span>Âm lượng nhạc</span>
+      <input type="range" min="0" max="100" [value]="volume()" (input)="setVolume(+$any($event.target).value)" />
+    </label>
+    @if (syncErrMs() !== null) {
+      <span class="sync" [class.follow]="mode() === 'follow'"
+            [title]="mode() === 'follow' ? 'Đang theo nhịp ca sĩ' : 'Đang theo đồng hồ chung'">
+        {{ mode() === 'follow' ? 'Theo ca sĩ' : 'Đồng bộ' }} ±{{ syncErrMs() }} ms
+      </span>
+    }
+  </footer>
+</section>

@@ -12,23 +12,76 @@
   </div>
 </header>
 
-<aside class="hud members panel" aria-label="Đang online">
-  <h2>Đang online · {{ count() }}/{{ rt.room()?.capacity ?? 8 }}</h2>
-  <ul>
-    @for (m of rt.members(); track m.userId) {
-      <li [class.me]="m.userId === auth.user()?.id">
-        <i class="dot"></i>{{ m.displayName }} @if (m.userId === auth.user()?.id) { <small>(bạn)</small> }
-      </li>
-    }
-  </ul>
+<aside class="hud side">
+  <app-player-panel />
+  <section class="panel members" aria-label="Đang online">
+    <h2>Đang online · {{ count() }}/{{ rt.room()?.capacity ?? 8 }}</h2>
+    <ul>
+      @for (m of rt.members(); track m.userId) {
+        <li [class.me]="m.userId === auth.user()?.id">
+          <i class="dot"></i>{{ m.displayName }}
+          @if (m.userId === rt.stage().singerId) { <span class="mic">🎤 đang hát</span> }
+          @if (m.userId === auth.user()?.id) { <small>(bạn)</small> }
+        </li>
+      }
+    </ul>
+  </section>
 </aside>
 
-<footer class="hud status panel">
-  <span class="conn" [class.on]="rt.connected()">{{ rt.connected() ? 'Đã kết nối' : 'Đang kết nối…' }}</span>
-  @if (rt.clock(); as c) {
-    <span>Đồng hồ lệch {{ c.offsetMs >= 0 ? '+' : '' }}{{ c.offsetMs }} ms · trễ {{ c.rttMs }} ms</span>
-  }
+<footer class="hud controls panel">
+  <form class="song" (ngSubmit)="setSong(link)">
+    <label for="link" class="sr">Link YouTube</label>
+    <input id="link" name="link" [(ngModel)]="link" placeholder="Dán link YouTube karaoke…" autocomplete="off" />
+    <button class="btn-main" type="submit" [disabled]="busy() || !link.trim()">Phát</button>
+    <button class="btn-ghost" type="button" (click)="playTestTrack()" [disabled]="busy()">Nhạc thử nhịp</button>
+    @if (rt.playback().song) {
+      <button class="btn-ghost" type="button" (click)="togglePause()">{{ rt.playback().paused ? 'Phát tiếp' : 'Tạm dừng' }}</button>
+    }
+  </form>
+
+  <div class="stage">
+    @if (isSinger()) {
+      <span class="live">● Đang hát · {{ voice.listenersConnected() }} người đang nghe</span>
+      <button class="btn-ghost" (click)="stopSinging()">Xuống sân khấu</button>
+    } @else if (rt.stage().singerId) {
+      <span class="listening">
+        🎤 {{ rt.stage().singerName }} đang hát
+        @if (voice.hearingSinger()) { · giọng tới trễ {{ (voice.voiceDelaySec() * 1000).toFixed(0) }} ms }
+        @else { · đang kết nối giọng… }
+      </span>
+    } @else {
+      <button class="btn-pink" (click)="askHeadphones.set(true)" [disabled]="busy()">🎤 Lên hát</button>
+    }
+  </div>
+
+  @if (actionError()) { <p class="error" role="alert">{{ actionError() }}</p> }
+
+  <div class="clock">
+    <span class="conn" [class.on]="rt.connected()">{{ rt.connected() ? 'Đã kết nối' : 'Đang kết nối…' }}</span>
+    @if (rt.clock(); as c) { <span>Đồng hồ lệch {{ c.offsetMs >= 0 ? '+' : '' }}{{ c.offsetMs }} ms · trễ {{ c.rttMs }} ms</span> }
+  </div>
 </footer>
+
+@if (toast()) { <div class="hud toast panel" role="status">{{ toast() }}</div> }
+
+@if (askHeadphones()) {
+  <div class="hud dialog panel" role="dialog" aria-labelledby="hp-title">
+    <h2 id="hp-title">Bạn có đeo tai nghe có dây không?</h2>
+    <p>Với tai nghe, giọng hát được gửi đi nguyên chất. Không có tai nghe, nhạc từ loa có thể lọt vào micro nên phải bật lọc tiếng vọng. Tai nghe Bluetooth chậm hơn khoảng 0,2 giây.</p>
+    <div class="row">
+      <button class="btn-ghost" (click)="sing(false)">Không có tai nghe</button>
+      <button class="btn-pink" (click)="sing(true)">Có, tai nghe có dây</button>
+    </div>
+    <button class="link" (click)="askHeadphones.set(false)">Huỷ</button>
+  </div>
+}
+
+@if (!audio.unlocked() && !rt.error()) {
+  <div class="hud gate">
+    <button class="btn-pink enter" (click)="enter()">Vào phòng</button>
+    <p>Bấm để bật âm thanh</p>
+  </div>
+}
 
 @if (rt.error()) {
   <div class="hud alert panel" role="alert">

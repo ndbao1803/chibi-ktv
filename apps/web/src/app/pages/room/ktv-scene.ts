@@ -22,9 +22,15 @@ const SPOTS: [number, number, number, boolean][] = [
 interface Chibi {
   root: THREE.Group;
   head: THREE.Group;
+  mouth: THREE.Mesh;
+  legs: THREE.Group[];
+  arms: THREE.Group[];
+  spot: number;
   phase: number;
   disposables: { dispose(): void }[];
 }
+
+const STAGE = new THREE.Vector3(0, 0.3, -3.1);
 
 export class KtvScene {
   private readonly renderer: THREE.WebGLRenderer;
@@ -36,6 +42,10 @@ export class KtvScene {
   private readonly disco = new THREE.Group();
   private readonly resize = new ResizeObserver(() => this.fit());
   private frame = 0;
+  private singerId: string | null = null;
+  private screen!: THREE.CanvasTexture;
+  /** Loudness of the singer's voice (0..1), read every frame for the mouth (A-04). */
+  singerLevel: () => number = () => 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -67,16 +77,73 @@ export class KtvScene {
         this.chibis.delete(id);
       }
     }
+    const taken = new Set([...this.chibis.values()].map((c) => c.spot));
     members.forEach((m, i) => {
-      if (this.chibis.has(m.userId) || i >= SPOTS.length) return;
-      const c = this.makeChibi(m.displayName, m.userId === meId, i);
-      const [x, z, rot, seated] = SPOTS[i];
-      c.root.position.set(x, seated ? 0.15 : 0, z);
-      c.root.rotation.y = rot;
-      if (seated) c.root.userData['seated'] = true;
+      if (this.chibis.has(m.userId)) return;
+      const spot = SPOTS.findIndex((_, k) => !taken.has(k));
+      if (spot < 0) return;
+      taken.add(spot);
+      const c = this.makeChibi(m.displayName, m.userId === meId, i, spot);
       this.scene.add(c.root);
       this.chibis.set(m.userId, c);
+      this.place(m.userId, c);
     });
+  }
+
+  /**
+   * The 3D TV is decoration only (the real video is the flat panel, P-04): it shows the song title
+   * and who is singing.
+   */
+  drawScreen(title: string | null, singer: string | null) {
+    const c = this.screen.image as HTMLCanvasElement;
+    const g = c.getContext('2d')!;
+    const grd = g.createLinearGradient(0, 0, 1024, 576);
+    grd.addColorStop(0, '#3a0d33');
+    grd.addColorStop(1, '#071c27');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 1024, 576);
+    g.textAlign = 'center';
+    g.shadowColor = '#ff3fa4';
+    g.shadowBlur = 30;
+    g.fillStyle = '#ffd1e9';
+    if (title) {
+      g.font = '700 64px "Be Vietnam Pro", sans-serif';
+      let t = title;
+      while (g.measureText(t).width > 920 && t.length > 4) t = t.slice(0, -2);
+      g.fillText(t === title ? t : t + '…', 512, 250);
+    } else {
+      g.font = '110px Bungee, Impact, sans-serif';
+      g.fillText('CHIBI KTV', 512, 270);
+    }
+    g.shadowBlur = 0;
+    g.font = '600 36px "Be Vietnam Pro", sans-serif';
+    g.fillStyle = 'rgba(255,255,255,.8)';
+    g.fillText(singer ? `🎤 ${singer} đang hát` : title ? 'Ai lên hát nào?' : 'Chờ bài hát đầu tiên…', 512, 350);
+    this.screen.needsUpdate = true;
+  }
+
+  /** Moves the singer to the stage, standing and facing the room; everyone else back to their seat. */
+  setSinger(userId: string | null) {
+    this.singerId = userId;
+    for (const [id, c] of this.chibis) this.place(id, c);
+  }
+
+  private place(id: string, c: Chibi) {
+    const onStage = id === this.singerId;
+    (c.root.userData['mic'] as THREE.Group).visible = onStage;
+    const [x, z, rot, seated] = SPOTS[c.spot];
+    if (onStage) {
+      c.root.position.copy(STAGE);
+      c.root.rotation.y = 0;
+    } else {
+      c.root.position.set(x, seated ? 0.15 : 0, z);
+      c.root.rotation.y = rot;
+    }
+    const sitting = seated && !onStage;
+    c.legs.forEach((l) => (l.rotation.x = sitting ? -Math.PI / 2 : 0));
+    // On stage the right arm holds the mic up.
+    c.arms[1].rotation.set(onStage ? -2.35 : -0.55, 0, onStage ? -0.35 : 0.12);
+    c.mouth.scale.set(1, 1, 1);
   }
 
   dispose() {
@@ -111,10 +178,15 @@ export class KtvScene {
     const t = this.clock.getElapsedTime();
     this.controls.update();
     this.disco.rotation.y = t * 0.35;
-    for (const c of this.chibis.values()) {
+    for (const [id, c] of this.chibis) {
       const beat = Math.sin(t * Math.PI * 2 * 0.9 + c.phase);
       c.head.rotation.z = beat * 0.06;
       c.head.position.y = 0.72 + Math.abs(beat) * 0.02;
+      if (id === this.singerId) {
+        const level = this.singerLevel();
+        c.mouth.scale.set(1 - level * 0.2, 1 + level * 4, 1);
+        c.root.rotation.z = Math.sin(t * 2.2) * 0.03;
+      }
     }
     this.renderer.render(this.scene, this.camera);
   };
@@ -194,24 +266,9 @@ export class KtvScene {
     const gold = this.basic(C.gold);
     this.mesh(new THREE.BoxGeometry(5.9, 0.07, 0.06), gold, 0, 4.38, -4.88);
     this.mesh(new THREE.BoxGeometry(5.9, 0.07, 0.06), gold, 0, 0.82, -4.88);
-    const screen = this.canvasTexture(1024, 576, (g) => {
-      const grd = g.createLinearGradient(0, 0, 1024, 576);
-      grd.addColorStop(0, '#3a0d33');
-      grd.addColorStop(1, '#071c27');
-      g.fillStyle = grd;
-      g.fillRect(0, 0, 1024, 576);
-      g.textAlign = 'center';
-      g.font = '110px Bungee, Impact, sans-serif';
-      g.shadowColor = '#ff3fa4';
-      g.shadowBlur = 30;
-      g.fillStyle = '#ffd1e9';
-      g.fillText('CHIBI KTV', 512, 270);
-      g.shadowBlur = 0;
-      g.font = '600 36px "Be Vietnam Pro", sans-serif';
-      g.fillStyle = 'rgba(255,255,255,.8)';
-      g.fillText('Chờ bài hát đầu tiên…', 512, 350);
-    });
-    this.mesh(new THREE.PlaneGeometry(5.5, 3.1), this.basic(0xffffff, { map: screen }), 0, 2.6, -4.81);
+    this.screen = this.canvasTexture(1024, 576, () => {});
+    this.drawScreen(null, null);
+    this.mesh(new THREE.PlaneGeometry(5.5, 3.1), this.basic(0xffffff, { map: this.screen }), 0, 2.6, -4.81);
     for (const x of [-3.7, 3.7]) this.mesh(new THREE.BoxGeometry(0.9, 2.6, 0.7), this.std(0x111015), x, 1.3, -4.4);
 
     // Stage with neon ring and spotlight beam.
@@ -273,7 +330,7 @@ export class KtvScene {
   }
 
   /** Big head, small body: the chibi spec from the design (A-01). */
-  private makeChibi(name: string, me: boolean, i: number): Chibi {
+  private makeChibi(name: string, me: boolean, i: number, spot: number): Chibi {
     const root = new THREE.Group();
     const outfit = this.std(OUTFIT[i % OUTFIT.length]);
     const skin = this.std(SKIN[i % SKIN.length], { flatShading: false });
@@ -282,12 +339,14 @@ export class KtvScene {
     const hips = new THREE.Group();
     hips.position.y = 0.3;
     root.add(hips);
+    const legs: THREE.Group[] = [];
     for (const x of [-0.11, 0.11]) {
       const leg = new THREE.Group();
       leg.position.x = x;
       hips.add(leg);
       this.mesh(new THREE.BoxGeometry(0.14, 0.28, 0.15), this.std(0x23202b), 0, -0.14, 0, leg);
-      if (i < 8) leg.rotation.x = -Math.PI / 2; // seated on the sofa
+      this.mesh(new THREE.BoxGeometry(0.16, 0.07, 0.2), this.std(0xf2f2f2), 0, -0.28, 0.03, leg);
+      legs.push(leg);
     }
     this.mesh(new THREE.BoxGeometry(0.46, 0.42, 0.34), outfit, 0, 0.21, 0, hips);
     const head = new THREE.Group();
@@ -299,7 +358,8 @@ export class KtvScene {
       this.mesh(new THREE.SphereGeometry(0.06, 10, 8), dark, x, -0.02, 0.36, head).scale.set(1, 1.25, 0.6);
       this.mesh(new THREE.CircleGeometry(0.05, 12), this.basic(0xff8fb1, { transparent: true, opacity: 0.6 }), x * 1.55, -0.11, 0.335, head);
     }
-    this.mesh(new THREE.BoxGeometry(0.1, 0.025, 0.02), this.basic(0x5a1426), 0, -0.15, 0.365, head);
+    const mouth = this.mesh(new THREE.BoxGeometry(0.1, 0.025, 0.02), this.basic(0x5a1426), 0, -0.15, 0.365, head);
+    const arms: THREE.Group[] = [];
     for (const side of [-1, 1]) {
       const arm = new THREE.Group();
       arm.position.set(side * 0.29, 0.36, 0);
@@ -307,7 +367,15 @@ export class KtvScene {
       hips.add(arm);
       this.mesh(new THREE.BoxGeometry(0.12, 0.3, 0.13), outfit, 0, -0.14, 0, arm);
       this.mesh(new THREE.SphereGeometry(0.07, 10, 8), skin, 0, -0.32, 0, arm);
+      arms.push(arm);
     }
+    // A microphone in the right hand, shown only on stage.
+    const mic = new THREE.Group();
+    mic.position.y = -0.36;
+    this.mesh(new THREE.CylinderGeometry(0.03, 0.022, 0.2, 10), this.std(0x111111, { metalness: 0.6 }), 0, -0.06, 0, mic);
+    this.mesh(new THREE.SphereGeometry(0.055, 10, 8), this.std(0x9a9a9a, { metalness: 0.9, roughness: 0.25 }), 0, -0.18, 0, mic);
+    arms[1].add(mic);
+    root.userData['mic'] = mic;
     const tag = this.nameTag(name, me);
     tag.position.y = 1.72;
     root.add(tag);
@@ -317,6 +385,6 @@ export class KtvScene {
       if (m.geometry) disposables.push(m.geometry);
       if (m.material && !Array.isArray(m.material)) disposables.push(m.material);
     });
-    return { root, head, phase: Math.random() * 6, disposables };
+    return { root, head, mouth, legs, arms, spot, phase: Math.random() * 6, disposables };
   }
 }

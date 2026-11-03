@@ -6,6 +6,11 @@ const Env = z.object({
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  /** Optional: checks pasted links (title, length, embeddable, blocked in Vietnam). Without it, any valid link is accepted. */
+  YOUTUBE_API_KEY: z.string().optional(),
+  /** Optional: Cloudflare Realtime TURN key, for friends on networks that block direct connections. */
+  CF_TURN_KEY_ID: z.string().optional(),
+  CF_TURN_KEY_TOKEN: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof Env>;
