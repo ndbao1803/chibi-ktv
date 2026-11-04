@@ -66,14 +66,35 @@ export class RoomPage implements OnInit, OnDestroy {
     await this.audio.unlock();
   }
 
+  /** A YouTube link joins the queue with me as the singer; the click track plays at once. */
   async setSong(link: string) {
     this.actionError.set('');
     this.busy.set(true);
-    const ack = await this.rt.setSong(link);
+    const isTest = link === TEST_TRACK_LINK;
+    const wasIdle = !this.rt.queue()?.current;
+    const ack = isTest ? await this.rt.setSong(link) : await this.rt.addToQueue(link);
     this.busy.set(false);
-    if (!ack.ok) this.actionError.set(ack.error);
-    else this.link = '';
+    if (!ack.ok) {
+      this.actionError.set(ack.error);
+      return;
+    }
+    this.link = '';
+    if (!isTest) this.flash(wasIdle ? 'Đến lượt bạn! Bấm “Bật micro” để hát.' : 'Đã thêm vào danh sách chờ');
   }
+
+  /** Toggle my vote to skip the song playing now (Q-07). */
+  async toggleSkip() {
+    const ack = await this.rt.voteSkip(!this.iVotedSkip());
+    if (!ack.ok) this.actionError.set(ack.error);
+  }
+  protected readonly iVotedSkip = computed(() => {
+    const me = this.auth.user()?.displayName;
+    return !!me && !!this.rt.skip()?.voterNames.includes(me);
+  });
+  protected readonly upNext = computed(() =>
+    (this.rt.queue()?.entries ?? []).slice(0, 3).map((e) => `${e.singerName} – ${e.song.title}`),
+  );
+  protected readonly waiting = computed(() => this.rt.queue()?.entries.length ?? 0);
   playTestTrack() {
     return this.setSong(TEST_TRACK_LINK);
   }

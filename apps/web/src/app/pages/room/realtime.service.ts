@@ -9,9 +9,11 @@ import {
   type JoinAck,
   type PlaybackState,
   type PresenceList,
+  type QueueState,
   type RoomInfo,
   type RtcSignalData,
   type RtcSignalFromServer,
+  type SkipState,
   type StageState,
 } from '@ktv/shared';
 
@@ -34,6 +36,10 @@ export class RealtimeService implements OnDestroy {
   readonly members = signal<PresenceList>([]);
   readonly playback = signal<PlaybackState>(EMPTY_PLAYBACK);
   readonly stage = signal<StageState>({ singerId: null, singerName: null });
+  /** The song queue and whose turn it is (Q-03, Q-05). */
+  readonly queue = signal<QueueState | null>(null);
+  /** Vote-skip numbers for the song playing now (Q-07). */
+  readonly skip = signal<SkipState | null>(null);
   readonly error = signal('');
   readonly clock = signal<ClockStats | null>(null);
   /** Short messages such as "Tuấn đã tạm dừng". */
@@ -51,6 +57,9 @@ export class RealtimeService implements OnDestroy {
     this.socket.on(Events.roomPresence, (list: PresenceList) => this.members.set(list));
     this.socket.on(Events.playState, (p: PlaybackState) => this.applyPlayback(p));
     this.socket.on(Events.stageState, (s: StageState) => this.stage.set(s));
+    this.socket.on(Events.queueState, (q: QueueState) => this.queue.set(q));
+    this.socket.on(Events.skipState, (s: SkipState) => this.skip.set(s));
+    this.socket.on('room:notice', (msg: string) => this.notice.set(msg));
     this.socket.on(Events.rtcSignal, (m: RtcSignalFromServer) => this.onSignal(m));
     this.socket.on('auth:error', (msg: string) => this.error.set(msg));
     this.socket.on('disconnect', () => this.connected.set(false));
@@ -67,12 +76,22 @@ export class RealtimeService implements OnDestroy {
       this.room.set(ack.room);
       this.playback.set(ack.playback);
       this.stage.set(ack.stage);
+      this.queue.set(ack.queue);
+      this.skip.set(ack.skip);
     });
     this.clockTimer = setInterval(() => void this.syncClock(), 30_000);
   }
 
+  /** The built-in click track only; YouTube songs go through the queue. */
   setSong(link: string): Promise<Ack> {
     return this.emit(Events.playSet, { link });
+  }
+  /** Adds a YouTube song with me as the singer. If nothing is playing, my turn starts right away. */
+  addToQueue(link: string): Promise<Ack> {
+    return this.emit(Events.queueAdd, { link });
+  }
+  voteSkip(vote: boolean): Promise<Ack> {
+    return this.emit(Events.skipVote, { vote });
   }
   pause(): Promise<Ack> {
     return this.emit(Events.playPause);

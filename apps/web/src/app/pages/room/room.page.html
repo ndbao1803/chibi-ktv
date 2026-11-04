@@ -32,7 +32,7 @@
   <form class="song" (ngSubmit)="setSong(link)">
     <label for="link" class="sr">Link YouTube</label>
     <input id="link" name="link" [(ngModel)]="link" placeholder="Dán link YouTube karaoke…" autocomplete="off" />
-    <button class="btn-main" type="submit" [disabled]="busy() || !link.trim()">Phát</button>
+    <button class="btn-main" type="submit" [disabled]="busy() || !link.trim()">Thêm bài</button>
     <button class="btn-ghost" type="button" (click)="playTestTrack()" [disabled]="busy()">Nhạc thử nhịp</button>
     @if (rt.playback().song) {
       <button class="btn-ghost" type="button" (click)="togglePause()">{{ rt.playback().paused ? 'Phát tiếp' : 'Tạm dừng' }}</button>
@@ -40,7 +40,11 @@
   </form>
 
   <div class="stage">
-    @if (isSinger()) {
+    @if (isSinger() && !voice.micOn()) {
+      <span class="live">Đến lượt bạn hát!</span>
+      <button class="btn-pink" (click)="askHeadphones.set(true)" [disabled]="busy()">🎤 Bật micro</button>
+      <button class="btn-ghost" (click)="stopSinging()">Bỏ lượt</button>
+    } @else if (isSinger()) {
       <span class="live">● Đang hát · {{ voice.listenersConnected() }} người đang nghe</span>
       <button class="btn-ghost" (click)="stopSinging()">Xuống sân khấu</button>
     } @else if (rt.stage().singerId) {
@@ -60,10 +64,20 @@
           @if (voice.manualOffsetMs() !== 0) { <button type="button" class="reset" (click)="voice.setManualOffset(0)">Về 0</button> }
         </label>
       }
+      @if (rt.queue()?.current && rt.skip(); as s) {
+        <button class="btn-ghost skip" [class.voted]="iVotedSkip()" (click)="toggleSkip()"
+                [attr.aria-pressed]="iVotedSkip()" [title]="s.voterNames.join(', ')">
+          ⏭ {{ iVotedSkip() ? 'Đã bầu bỏ qua' : 'Bỏ qua' }} ({{ s.have }}/{{ s.needed }})
+        </button>
+      }
     } @else {
       <button class="btn-pink" (click)="askHeadphones.set(true)" [disabled]="busy()">🎤 Lên hát</button>
     }
   </div>
+
+  @if (waiting() > 0) {
+    <p class="next"><b>Tiếp theo ({{ waiting() }}):</b> {{ upNext().join(' · ') }}@if (waiting() > 3) { · … }</p>
+  }
 
   @if (actionError()) { <p class="error" role="alert">{{ actionError() }}</p> }
 

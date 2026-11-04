@@ -60,6 +60,8 @@ export class VoiceService implements OnDestroy {
   readonly needsTap = signal(false);
   /** Singer: how many listeners are connected. */
   readonly listenersConnected = signal(0);
+  /** Singer: my mic is on and being sent. A turn can put me on stage before I switch it on. */
+  readonly micOn = signal(false);
   readonly error = signal('');
   /** Singer: how late I hear my own music + my mic delay (s), sent to listeners. */
   readonly singerLagSec = signal(0);
@@ -99,6 +101,9 @@ export class VoiceService implements OnDestroy {
       this.stopMic();
       return ack.error;
     }
+    this.micOn.set(true);
+    // If a turn already put me on stage, the stage did not change, so connect to listeners now.
+    await this.reconcile(this.rt.stage(), this.rt.members());
     return null;
   }
 
@@ -317,6 +322,7 @@ export class VoiceService implements OnDestroy {
   }
 
   private stopMic() {
+    this.micOn.set(false);
     this.micMeter?.stop();
     this.micMeter = undefined;
     this.mic?.getTracks().forEach((t) => t.stop());
