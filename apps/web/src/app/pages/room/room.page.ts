@@ -29,6 +29,8 @@ export class RoomPage implements OnInit, OnDestroy {
   private scene?: KtvScene;
 
   protected readonly copied = signal(false);
+  /** The browser could not run the 3D room; everything else still works. */
+  protected readonly no3d = signal(false);
   protected readonly count = computed(() => this.rt.members().length);
   protected readonly isSinger = computed(() => this.voice.role() === 'singer');
   protected readonly askHeadphones = signal(false);
@@ -48,12 +50,23 @@ export class RoomPage implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    // Join first: the room (music, voice, queue) must work even if 3D does not.
+    void this.rt.join(this.code().toUpperCase());
     // ?lite=1 skips the 3D room (slow phones, and the multi-browser sync test).
-    if (!new URLSearchParams(location.search).has('lite')) {
+    if (new URLSearchParams(location.search).has('lite')) return;
+    try {
       this.scene = new KtvScene(this.canvas().nativeElement);
       this.scene.singerLevel = () => this.voice.singerLevel();
+      this.scene.onLost = () => this.no3d.set(true);
+      // Effects that ran before the scene existed: draw the current room now.
+      this.scene.setMembers(this.rt.members(), this.auth.user()?.id);
+      this.scene.setSinger(this.rt.stage().singerId);
+      this.scene.drawScreen(this.rt.playback().song?.title ?? null, this.rt.stage().singerName);
+    } catch (e) {
+      console.warn('3D room unavailable, continuing without it', e);
+      this.scene = undefined;
+      this.no3d.set(true);
     }
-    void this.rt.join(this.code().toUpperCase());
   }
 
   ngOnDestroy() {

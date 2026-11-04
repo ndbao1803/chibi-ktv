@@ -37,7 +37,7 @@ export class KtvScene {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
   private readonly controls: OrbitControls;
-  private readonly clock = new THREE.Clock();
+  private readonly timer = new THREE.Timer();
   private readonly chibis = new Map<string, Chibi>();
   private readonly disco = new THREE.Group();
   private readonly resize = new ResizeObserver(() => this.fit());
@@ -47,9 +47,15 @@ export class KtvScene {
   /** Loudness of the singer's voice (0..1), read every frame for the mouth (A-04). */
   singerLevel: () => number = () => 0;
 
+  /** Called if the browser takes the 3D context away later (GPU reset, too many tabs). */
+  onLost: () => void = () => {};
+
+  /** Throws if this browser cannot create a 3D (WebGL) context; the room page then runs without 3D. */
   constructor(private readonly canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     const coarse = matchMedia('(pointer: coarse)').matches;
+    // Phones: skip antialiasing, it is the most GPU-hungry setting and the chibis are flat-shaded anyway.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !coarse, powerPreference: 'low-power' });
+    canvas.addEventListener('webglcontextlost', this.contextLost, false);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, coarse ? 1.5 : 2));
     this.scene.background = new THREE.Color(0x0b0912);
     this.scene.fog = new THREE.Fog(0x0b0912, 14, 26);
@@ -148,6 +154,7 @@ export class KtvScene {
 
   dispose() {
     cancelAnimationFrame(this.frame);
+    this.canvas.removeEventListener('webglcontextlost', this.contextLost, false);
     this.resize.disconnect();
     this.controls.dispose();
     this.scene.traverse((o) => {
@@ -160,9 +167,18 @@ export class KtvScene {
       });
     });
     this.renderer.dispose();
+    // Give the GPU context back right away. Without this, entering and leaving rooms piles up
+    // contexts until the browser starts killing them and then blocks 3D for the whole site.
+    this.renderer.forceContextLoss();
   }
 
   /* ---------- internals ---------- */
+
+  private contextLost = (e: Event) => {
+    e.preventDefault();
+    cancelAnimationFrame(this.frame);
+    this.onLost();
+  };
 
   private fit() {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
@@ -175,7 +191,8 @@ export class KtvScene {
 
   private loop = () => {
     this.frame = requestAnimationFrame(this.loop);
-    const t = this.clock.getElapsedTime();
+    this.timer.update();
+    const t = this.timer.getElapsed();
     this.controls.update();
     this.disco.rotation.y = t * 0.35;
     for (const [id, c] of this.chibis) {

@@ -122,6 +122,13 @@
   </div>
 }
 
+@if (no3d()) {
+  <div class="hud no3d panel" role="status">
+    Máy này đang không chạy được phòng 3D, nhưng nhạc, giọng hát và hàng chờ vẫn hoạt động.
+    Thử đóng bớt tab rồi tải lại trang; trên Chrome, bật “Dùng tăng tốc đồ hoạ” trong Cài đặt → Hệ thống.
+  </div>
+}
+
 @if (rt.error()) {
   <div class="hud alert panel" role="alert">
     <p>{{ rt.error() }}</p>
