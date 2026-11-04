@@ -7,11 +7,15 @@ services:
     plan: free
     region: singapore
     buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm build
-    startCommand: pnpm start
+    # Plain node at runtime, so starting does not depend on pnpm being installed there.
+    startCommand: node apps/server/dist/main.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: "22"
+      # Our build command installs with pnpm itself; skip Render's own install step.
+      - key: SKIP_INSTALL_DEPS
+        value: "true"
       - key: NODE_ENV
         value: production
       - key: JWT_SECRET
