@@ -10,7 +10,7 @@
 ## Overview
 
 - **Priority:** P1
-- **Status:** pending
+- **Status:** done (4 Nov 2026)
 - Anyone except the current singer may vote to skip the song playing now. When half of the
   non-singing members have voted, the server ends the turn and advances the queue. Votes belong to
   one turn and are thrown away when it changes.
@@ -104,12 +104,12 @@ Modify
 
 ## Todo List
 
-- [ ] `room-skip.ts` + spec green
-- [ ] `RoomState.vote()` with the three Vietnamese guards
-- [ ] Votes cleared on turn change, song change and full leave
-- [ ] Tick re-evaluates after presence changes
-- [ ] `skip:state` broadcast + in `JoinAck`
-- [ ] e2e: two members, one votes, song advances (needed = 1)
+- [x] `room-skip.ts` + spec green
+- [x] `RoomState.vote()` with the three Vietnamese guards
+- [x] Votes cleared on turn change, song change and full leave
+- [x] Tick re-evaluates after presence changes
+- [x] `skip:state` broadcast + in `JoinAck`
+- [x] e2e: two members, one votes, song advances (needed = 1)
 
 ## Success Criteria
 

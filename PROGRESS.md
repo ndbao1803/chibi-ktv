@@ -1,5 +1,21 @@
 # Progress — 4 Nov 2026
 
+## Update: phase 03 (vote-skip) done
+- `skip:vote { vote }` toggles your vote on the song playing now; half of the non-singers
+  (rounded up, at least 1) ends the turn, the next song starts, and everyone gets the notice
+  `Cả phòng đã bỏ qua bài “…”`. The singer is refused with the "Xuống sân khấu" hint.
+- Votes belong to one turn (cleared in `advance()`), a leaver's vote is dropped, and the 1 s tick
+  re-counts so people leaving can tip a vote over. `skip:state { have, needed, voterNames, rev }`
+  is broadcast only when the numbers change, and is in `JoinAck` (the `EMPTY_SKIP` placeholder is gone).
+- Code: `apps/server/src/rooms/room-skip.ts` (+ spec), `room-state.ts` (`vote`, `skipState`,
+  `refreshSkip`), gateway handler, `RoomLiveService.emitSkip`.
+- Tests: shared 17, server unit 28, server e2e 23 (2 new vote-skip scenarios), web 11 — all green.
+- Still no web UI for the queue or the skip button (phase 06). Next: phase 04 (server-decided
+  song end + blocked videos).
+
+---
+
+
 ## What's in the latest push
 
 ### Phase 2 groundwork (phases 01–02 of 7 — plan at `plans/261104-0053-phase-2-room-and-queue/`)

@@ -20,13 +20,13 @@ import {
   RoomJoinInput,
   RT_NAMESPACE,
   RtcSignalInput,
+  SkipVoteInput,
   TEST_TRACK_LINK,
   TEST_TRACK_SECONDS,
   type Ack,
   type ClockPong,
   type JoinAck,
   type RtcSignalFromServer,
-  type SkipState,
 } from '@ktv/shared';
 import { AuthService } from '../auth/auth.service.js';
 import { AUTH_COOKIE, readCookie } from '../auth/auth.cookie.js';
@@ -34,9 +34,6 @@ import { YouTubeService } from '../youtube/youtube.service.js';
 import { RoomsService } from './rooms.service.js';
 import { RoomLiveService, channel } from './room-live.service.js';
 import { leaveCurrentRoom, roomContext, type KtvSocket } from './socket-session.js';
-
-// TODO phase 03: a real SkipState (zero votes, needed computed from current membership).
-const EMPTY_SKIP: SkipState = { have: 0, needed: 1, voterNames: [], rev: 0 };
 
 @WebSocketGateway({ namespace: RT_NAMESPACE })
 export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit {
@@ -87,9 +84,10 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     client.data.roomCode = room.code;
     await client.join(channel(room.code));
     state.addSocket(user.id, user.displayName, client.id);
-    this.live.emitPresence(state);
+    // A newcomer changes how many votes a skip needs.
+    this.live.apply(state, { presence: true, skip: state.refreshSkip() });
     this.log.log(`${user.displayName} joined ${room.code}`);
-    return { ok: true, room, playback: state.playback, stage: state.stage, queue: state.queue.state(), skip: EMPTY_SKIP };
+    return { ok: true, room, playback: state.playback, stage: state.stage, queue: state.queue.state(), skip: state.skipState() };
   }
 
   /** Clock sync (Y-03): the client measures round-trip time and offset. */
@@ -161,6 +159,20 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     const removed = ctx.state.queue.removeOwn(parsed.data.entryId, ctx.user.id);
     if (removed.ok) this.live.emitQueue(ctx.state);
     return removed;
+  }
+
+  /* ---------- vote-skip: half of the non-singers skip the song playing now (Q-07) ---------- */
+
+  @SubscribeMessage(Events.skipVote)
+  skipVote(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = SkipVoteInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Phiếu bầu không hợp lệ' };
+    const r = ctx.state.vote(ctx.user.id, parsed.data.vote);
+    if (!r.ok) return r;
+    this.live.apply(ctx.state, r.effects);
+    return { ok: true };
   }
 
   /* ---------- stage: a turn puts its singer here (S-01); `stage:take` still works for an empty stage ---------- */

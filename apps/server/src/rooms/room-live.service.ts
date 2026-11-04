@@ -86,9 +86,8 @@ export class RoomLiveService implements OnModuleDestroy {
   emitQueue(s: RoomState) {
     this.ns.to(channel(s.code)).emit(Events.queueState, s.queue.state());
   }
-  /** TODO phase 03: read from `RoomSkip` and emit `Events.skipState` once vote-skip exists. */
-  emitSkip(_s: RoomState) {
-    // no-op: nothing in RoomState sets `effects.skip` yet, so this is never called in phase 02.
+  emitSkip(s: RoomState) {
+    this.ns.to(channel(s.code)).emit(Events.skipState, s.skipState());
   }
   emitNotice(s: RoomState, message: string) {
     this.ns.to(channel(s.code)).emit('room:notice', message);

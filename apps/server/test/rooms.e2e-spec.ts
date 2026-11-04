@@ -189,3 +189,67 @@ describe('Playback, stage and WebRTC relay (e2e)', () => {
     await http.get('/api/rtc/ice').expect(401);
   });
 });
+
+describe('Vote-skip (e2e, Q-07)', () => {
+  let app: INestApplication;
+  let baseUrl: string;
+  let http: ReturnType<typeof request>;
+  const sockets: Socket[] = [];
+
+  const signup = async (email: string, displayName: string) =>
+    cookieFrom(await http.post('/api/auth/register').send({ email, password: 'password-123', displayName }).expect(201));
+  const connect = async (cookie: string) => {
+    const s = io(baseUrl + RT_NAMESPACE, { transports: ['websocket'], extraHeaders: { cookie }, reconnection: false });
+    sockets.push(s);
+    await new Promise<void>((r) => s.once('connect', () => r()));
+    return s;
+  };
+  const once = <T>(s: Socket, ev: string) => new Promise<T>((r) => s.once(ev, r));
+
+  beforeAll(async () => {
+    ({ app, baseUrl } = await startTestApp());
+    http = request(app.getHttpServer());
+  });
+  afterAll(async () => {
+    sockets.forEach((s) => s.close());
+    await app.close();
+  });
+
+  it('two friends: the listener votes once, the song is skipped and everyone is told', async () => {
+    const ca = await signup('skip-singer@example.com', 'Ca sĩ');
+    const cb = await signup('skip-fan@example.com', 'Fan');
+    const code = ((await http.post('/api/rooms').set('Cookie', ca).send({})).body as RoomInfo).code;
+    const a = await connect(ca);
+    const b = await connect(cb);
+    await a.emitWithAck(Events.roomJoin, { code });
+    const joined = (await b.emitWithAck(Events.roomJoin, { code })) as JoinAck;
+    expect(joined.ok && joined.skip).toMatchObject({ have: 0, needed: 1 });
+
+    // Nothing is playing yet: voting is refused.
+    expect(await b.emitWithAck(Events.skipVote, { vote: true })).toEqual({ ok: false, error: 'Chưa có bài nào đang phát' });
+
+    const started = once<PlaybackState>(b, Events.playState);
+    expect(await a.emitWithAck(Events.queueAdd, { link: 'https://youtu.be/dQw4w9WgXcQ' })).toMatchObject({ ok: true });
+    expect((await started).song).toMatchObject({ id: 'dQw4w9WgXcQ' });
+
+    // The singer cannot vote on their own song.
+    expect(await a.emitWithAck(Events.skipVote, { vote: true })).toEqual({
+      ok: false,
+      error: 'Ca sĩ dùng “Xuống sân khấu” để bỏ bài của mình',
+    });
+
+    const notice = once<string>(a, 'room:notice');
+    const stopped = once<PlaybackState>(a, Events.playState);
+    expect(await b.emitWithAck(Events.skipVote, { vote: true })).toEqual({ ok: true });
+    expect(await notice).toMatch(/^Cả phòng đã bỏ qua bài/);
+    expect((await stopped).song).toBeNull(); // queue was empty: the room goes idle
+  });
+
+  it('rejects a malformed vote', async () => {
+    const c = await signup('skip-bad@example.com', 'Bad');
+    const code = ((await http.post('/api/rooms').set('Cookie', c).send({})).body as RoomInfo).code;
+    const s = await connect(c);
+    await s.emitWithAck(Events.roomJoin, { code });
+    expect(await s.emitWithAck(Events.skipVote, { vote: 'yes please' })).toEqual({ ok: false, error: 'Phiếu bầu không hợp lệ' });
+  });
+});

@@ -3,12 +3,15 @@ import {
   expectedPosition,
   SONG_END_GRACE_SEC,
   START_LEAD_MS,
+  skipDecision,
   type PlaybackState,
+  type SkipState,
   type PresenceList,
   type SongRef,
   type StageState,
 } from '@ktv/shared';
 import { RoomQueue } from './room-queue.js';
+import { SkipVotes } from './room-skip.js';
 
 interface Member {
   displayName: string;
@@ -35,6 +38,10 @@ export class RoomState {
   playback: PlaybackState = { ...EMPTY_PLAYBACK };
   stage: StageState = { singerId: null, singerName: null };
   readonly queue = new RoomQueue();
+  private readonly skips = new SkipVotes();
+  /** The skip numbers last broadcast, so we only send `skip:state` when they really change. */
+  private lastSkipKey = '0/1/';
+  private skipRev = 0;
 
   constructor(
     readonly code: string,
@@ -56,6 +63,7 @@ export class RoomState {
     m.sockets.delete(socketId);
     if (m.sockets.size > 0) return false;
     this.members.delete(userId);
+    this.skips.drop(userId); // the next tick re-counts and broadcasts
     // TODO phase 05: an away-grace window before any of this fires, and drop their pending queue
     // entries via `this.queue.removeAllOf(userId)` only once the grace actually expires (R-09, N-12).
     if (this.queue.current?.entry.singerId === userId) {
@@ -133,6 +141,57 @@ export class RoomState {
     return { stage: true };
   }
 
+  /* ----- vote-skip (Q-07) ----- */
+
+  /**
+   * Adds or removes the caller's vote to skip the song playing now. Half of the non-singers
+   * (rounded up, at least 1) ends the turn. The singer uses "Xuống sân khấu" instead of voting.
+   */
+  vote(userId: string, vote: boolean): { ok: true; effects: Effects } | { ok: false; error: string } {
+    if (!this.queue.current) return { ok: false, error: 'Chưa có bài nào đang phát' };
+    if (userId === this.stage.singerId) return { ok: false, error: 'Ca sĩ dùng “Xuống sân khấu” để bỏ bài của mình' };
+    if (!this.memberIds().some((id) => id !== this.stage.singerId)) {
+      return { ok: false, error: 'Cần ít nhất một người khác trong phòng' };
+    }
+    if (!this.skips.toggle(userId, vote)) return { ok: true, effects: {} };
+    const skipped = this.skipIfVoted();
+    if (skipped) return { ok: true, effects: skipped };
+    return { ok: true, effects: this.refreshSkip() ? { skip: true } : {} };
+  }
+
+  /** What the "Bỏ qua (have/needed)" button shows. Names come from server presence only. */
+  skipState(): SkipState {
+    const singer = this.stage.singerId;
+    const d = skipDecision(this.skips.ids, this.memberIds(), singer);
+    const voterNames = this.skips.ids
+      .filter((id) => id !== singer && this.members.has(id))
+      .map((id) => this.members.get(id)!.displayName);
+    return { have: this.queue.current ? d.have : 0, needed: d.needed, voterNames, rev: this.skipRev };
+  }
+
+  /** True (and a new `rev`) when the skip numbers changed since the last broadcast, e.g. after a join or leave. */
+  refreshSkip(): boolean {
+    const s = this.skipState();
+    const key = `${s.have}/${s.needed}/${s.voterNames.join(',')}`;
+    if (key === this.lastSkipKey) return false;
+    this.lastSkipKey = key;
+    this.skipRev++;
+    return true;
+  }
+
+  /** Ends the turn when enough people voted. Also called by the tick, because people leaving can tip it. */
+  private skipIfVoted(): Effects | null {
+    const turn = this.queue.current;
+    if (!turn) return null;
+    if (!skipDecision(this.skips.ids, this.memberIds(), this.stage.singerId).skip) return null;
+    const title = turn.entry.song.title;
+    return { ...this.advance(), notice: `Cả phòng đã bỏ qua bài “${title}”` };
+  }
+
+  private memberIds(): string[] {
+    return [...this.members.keys()];
+  }
+
   /* ----- turns (Q-05, S-01) ----- */
 
   /** Starts a turn immediately when the queue holds a song and none is running. */
@@ -151,13 +210,14 @@ export class RoomState {
   /** Clears the current turn and starts the next one; an empty queue idles the room (Y-11). */
   advance(): Effects {
     this.queue.setCurrent(null);
+    this.skips.clear(); // votes belong to one turn; every path to a new song goes through here
     let next = this.queue.shift();
     while (next && !this.has(next.singerId)) next = this.queue.shift(); // singer already gone; skip them
 
     if (!next) {
       this.playback = { ...EMPTY_PLAYBACK, rev: this.playback.rev + 1 };
       this.stage = { singerId: null, singerName: null };
-      return { playback: true, stage: true, queue: true };
+      return this.withSkip({ playback: true, stage: true, queue: true });
     }
 
     this.setSong(next.song, next.singerName);
@@ -171,15 +231,23 @@ export class RoomState {
       singerAwayUntilMs: null,
       kept: false,
     });
-    return { playback: true, stage: true, queue: true };
+    return this.withSkip({ playback: true, stage: true, queue: true });
+  }
+
+  /** Adds `skip: true` only when the skip numbers changed, so callers broadcast them too. */
+  private withSkip(effects: Effects): Effects {
+    return this.refreshSkip() ? { ...effects, skip: true } : effects;
   }
 
   /** Every server-time deadline in the room (song end, away grace, vote re-counts) in one place. */
   tick(now: number): Effects {
     void now;
+    // Q-07: people leaving can make the existing votes enough (4 of 8 voted, 3 others left).
+    const skipped = this.skipIfVoted();
+    if (skipped) return skipped;
     // TODO phase 04: when `queue.current?.endsAtServerMs` has passed (and the song is not `kept`
     // past a dropped singer), call `this.endTurn(null)` here.
     // TODO phase 05: `singerAwayUntilMs` bookkeeping and the away-grace seat/queue protection.
-    return {};
+    return this.refreshSkip() ? { skip: true } : {};
   }
 }

@@ -103,3 +103,86 @@ describe('RoomState', () => {
     expect(r.stage.singerId).toBe('u2');
   });
 });
+
+describe('RoomState vote-skip (Q-07)', () => {
+  const yt = (n: number) => ({ kind: 'youtube' as const, id: `vid0000000${n}`, title: `Bài ${n}`, durationSec: 200 });
+  const now = 5_000_000;
+
+  /** Room with `n` members u1..un; u1 has a turn running, u2 has the next song queued. */
+  function room(n: number) {
+    const r = new RoomState('ABC123', () => now);
+    for (let i = 1; i <= n; i++) r.addSocket(`u${i}`, `Bạn ${i}`, `s${i}`);
+    r.queue.add(yt(1), 'u1', 'Bạn 1', now);
+    if (n > 1) r.queue.add(yt(2), 'u2', 'Bạn 2', now);
+    r.startTurnIfIdle();
+    return r;
+  }
+  const vote = (r: RoomState, id: string, v = true) => {
+    const res = r.vote(id, v);
+    if (!res.ok) throw new Error(res.error);
+    return res.effects;
+  };
+
+  it('room of 8: 3 votes do not skip, the 4th does and the next song starts with a notice', () => {
+    const r = room(8);
+    vote(r, 'u3');
+    vote(r, 'u4');
+    expect(vote(r, 'u5')).toEqual({ skip: true });
+    expect(r.skipState()).toMatchObject({ have: 3, needed: 4, voterNames: ['Bạn 3', 'Bạn 4', 'Bạn 5'] });
+    const fx = vote(r, 'u6');
+    expect(fx).toMatchObject({ playback: true, stage: true, queue: true, notice: 'Cả phòng đã bỏ qua bài “Bài 1”' });
+    expect(r.playback.song?.title).toBe('Bài 2');
+    expect(r.stage.singerId).toBe('u2');
+  });
+
+  it('votes never carry over: the next song starts at 0 votes', () => {
+    const r = room(8);
+    ['u3', 'u4', 'u5', 'u6'].forEach((id) => vote(r, id));
+    expect(r.skipState()).toMatchObject({ have: 0, voterNames: [] });
+  });
+
+  it('room of 2: the one listener skips alone (needed = 1)', () => {
+    const r = room(2);
+    expect(r.skipState().needed).toBe(1);
+    expect(vote(r, 'u2').notice).toBe('Cả phòng đã bỏ qua bài “Bài 1”');
+  });
+
+  it('a vote can be taken back', () => {
+    const r = room(8);
+    vote(r, 'u3');
+    vote(r, 'u3', false);
+    expect(r.skipState().have).toBe(0);
+  });
+
+  it('3 of 8 voted, then 3 others leave: the tick finds it is now enough and skips', () => {
+    const r = room(8);
+    ['u3', 'u4', 'u5'].forEach((id) => vote(r, id));
+    ['u6', 'u7', 'u8'].forEach((id) => r.removeSocket(id, `s${id.slice(1)}`));
+    const fx = r.tick(now);
+    expect(fx.notice).toBe('Cả phòng đã bỏ qua bài “Bài 1”');
+    expect(r.playback.song?.title).toBe('Bài 2');
+  });
+
+  it('a voter who leaves loses their vote, and the tick re-broadcasts the new numbers', () => {
+    const r = room(8);
+    vote(r, 'u3');
+    r.removeSocket('u3', 's3');
+    expect(r.tick(now)).toEqual({ skip: true });
+    expect(r.skipState()).toMatchObject({ have: 0, needed: 3 });
+    expect(r.tick(now)).toEqual({}); // nothing new: no broadcast
+  });
+
+  it('refuses the singer and an idle room; with an empty stage, everyone present may vote', () => {
+    expect(room(3).vote('u1', true)).toEqual({ ok: false, error: 'Ca sĩ dùng “Xuống sân khấu” để bỏ bài của mình' });
+
+    const idle = new RoomState('ABC123', () => now);
+    idle.addSocket('u1', 'Bạn 1', 's1');
+    expect(idle.vote('u1', true)).toEqual({ ok: false, error: 'Chưa có bài nào đang phát' });
+
+    const alone = room(1);
+    alone.stage = { singerId: null, singerName: null }; // e.g. the singer stepped away (phase 05)
+    alone.addSocket('u9', 'Khách', 's9');
+    alone.removeSocket('u9', 's9');
+    expect(alone.vote('u1', true).ok).toBe(true); // with an empty stage, everyone present is eligible
+  });
+});
