@@ -1,12 +1,12 @@
 /**
  * Opus settings for singing (S-05): mono, no silence skipping (DTX off, it cuts held notes),
- * error correction on, up to 96 kbps. Applied by editing the session description.
+ * error correction on, up to 64 kbps. Applied by editing the session description.
  */
 export function tuneOpus(sdp: string): string {
   const m = /a=rtpmap:(\d+) opus\/48000/i.exec(sdp);
   if (!m) return sdp;
   const pt = m[1];
-  const wanted: Record<string, string> = { stereo: '0', 'sprop-stereo': '0', usedtx: '0', useinbandfec: '1', maxaveragebitrate: '96000' };
+  const wanted: Record<string, string> = { stereo: '0', 'sprop-stereo': '0', usedtx: '0', useinbandfec: '1', maxaveragebitrate: '64000' };
   const fmtp = new RegExp(`a=fmtp:${pt} ([^\\r\\n]*)`);
   const existing = fmtp.exec(sdp);
   const params = new Map<string, string>();

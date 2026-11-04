@@ -44,6 +44,9 @@
 .live { color: var(--pink); font-weight: 600; }
 .listening { color: var(--cyan); font-size: 13px; }
 .skip { padding: 6px 10px; font-size: 12.5px; }
+.meter { width: 90px; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--good), var(--gold), var(--pink)); transition: width 0.15s linear; }
+.hint { margin: 0; width: 100%; font-size: 12px; color: var(--gold); }
 .skip.voted { border-color: var(--pink); color: var(--pink); }
 .next { margin: 0; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .next b { color: var(--fg); font-weight: 600; }

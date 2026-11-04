@@ -57,6 +57,7 @@ export class RoomPage implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    clearInterval(this.micTimer);
     this.scene?.dispose();
     clearTimeout(this.noticeTimer);
   }
@@ -95,6 +96,23 @@ export class RoomPage implements OnInit, OnDestroy {
     (this.rt.queue()?.entries ?? []).slice(0, 3).map((e) => `${e.singerName} – ${e.song.title}`),
   );
   protected readonly waiting = computed(() => this.rt.queue()?.entries.length ?? 0);
+
+  /** The mic meter is off on iPhone (see VoiceService), so its "silent" hint is too. */
+  protected readonly isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  /** Singer's own mic meter, so you can see your voice is being picked up (0..100). */
+  protected readonly micLevel = signal(0);
+  /** Seconds the mic has been silent while singing; after a few, we show a hint. */
+  protected readonly micSilentSec = signal(0);
+  private micTimer = setInterval(() => {
+    if (!this.voice.micOn()) {
+      this.micLevel.set(0);
+      this.micSilentSec.set(0);
+      return;
+    }
+    const level = Math.round(this.voice.micLevel() * 100);
+    this.micLevel.set(level);
+    this.micSilentSec.set(level > 2 ? 0 : this.micSilentSec() + 0.2);
+  }, 200);
   playTestTrack() {
     return this.setSong(TEST_TRACK_LINK);
   }

@@ -46,7 +46,13 @@
       <button class="btn-ghost" (click)="stopSinging()">Bỏ lượt</button>
     } @else if (isSinger()) {
       <span class="live">● Đang hát · {{ voice.listenersConnected() }} người đang nghe</span>
+      <span class="meter" role="meter" aria-label="Âm lượng micro" [attr.aria-valuenow]="micLevel()" aria-valuemin="0" aria-valuemax="100">
+        <i [style.width.%]="micLevel()"></i>
+      </span>
       <button class="btn-ghost" (click)="stopSinging()">Xuống sân khấu</button>
+      @if (micSilentSec() > 5 && !isIOS) {
+        <p class="hint">Micro chưa nghe thấy tiếng. Thử nói to hơn. Trên iPhone: kiểm tra Cài đặt → Safari → Micro; nếu dùng tai nghe Bluetooth, thử tháo ra.</p>
+      }
     } @else if (rt.stage().singerId) {
       <span class="listening">
         🎤 {{ rt.stage().singerName }} đang hát
@@ -99,7 +105,7 @@
 @if (askHeadphones()) {
   <div class="hud dialog panel" role="dialog" aria-labelledby="hp-title">
     <h2 id="hp-title">Bạn đang dùng tai nghe gì?</h2>
-    <p>Với tai nghe, giọng hát được gửi đi nguyên chất. Không có tai nghe, nhạc từ loa có thể lọt vào micro nên phải bật lọc tiếng vọng. Tai nghe Bluetooth chậm hơn khoảng 0,2 giây; ứng dụng sẽ bù phần này cho người nghe.</p>
+    <p><b>Nên dùng tai nghe có dây.</b> AirPods và tai nghe Bluetooth khác chuyển micro sang chế độ gọi điện chất lượng thấp, dễ làm giọng bị đứt quãng. Với tai nghe, giọng hát được gửi đi nguyên chất. Không có tai nghe, nhạc từ loa có thể lọt vào micro nên phải bật lọc tiếng vọng. Tai nghe Bluetooth chậm hơn khoảng 0,2 giây; ứng dụng sẽ bù phần này cho người nghe.</p>
     <div class="row">
       <button class="btn-pink" (click)="sing('wired')">Có, tai nghe có dây</button>
       <button class="btn-ghost" (click)="sing('bluetooth')">Tai nghe Bluetooth</button>

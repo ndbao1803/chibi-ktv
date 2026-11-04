@@ -7,7 +7,7 @@ describe('tuneOpus', () => {
     const out = tuneOpus(sdp);
     expect(out).toContain('minptime=10');
     expect(out).toContain('usedtx=0');
-    expect(out).toContain('maxaveragebitrate=96000');
+    expect(out).toContain('maxaveragebitrate=64000');
     expect(out).not.toContain('usedtx=1');
   });
 

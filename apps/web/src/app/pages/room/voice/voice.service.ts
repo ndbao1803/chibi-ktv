@@ -17,7 +17,58 @@ interface Peer {
   statsPrev?: { jbd: number; count: number };
 }
 
+/**
+ * Opens the mic. With headphones we ask for the raw voice (no echo cancelling, best for singing).
+ * Some phones (notably iPhone) reject or mishandle those settings, so on a settings error we
+ * retry with the browser defaults rather than failing.
+ */
+async function openMic(headphones: boolean): Promise<MediaStream> {
+  const tuned: MediaTrackConstraints = {
+    echoCancellation: !headphones,
+    noiseSuppression: !headphones,
+    autoGainControl: !headphones,
+    channelCount: 1,
+  };
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: tuned });
+  } catch (e) {
+    const name = (e as DOMException)?.name;
+    if (name === 'OverconstrainedError' || name === 'TypeError' || name === 'NotReadableError') {
+      return navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+    throw e;
+  }
+}
+
+/** A clear Vietnamese message for each way the mic can fail, with the error name for debugging. */
+export function micErrorText(e: unknown): string {
+  const name = (e as DOMException)?.name ?? 'Error';
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  switch (name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return ios
+        ? `Safari chưa cho dùng micro. Bấm "aA" trên thanh địa chỉ → Cài đặt trang web → Micro → Cho phép, rồi thử lại. Nếu vẫn không được: Cài đặt → Safari → Micro → Hỏi/Cho phép. (${name})`
+        : `Trình duyệt chưa cho dùng micro. Bấm biểu tượng ổ khoá cạnh địa chỉ trang → cho phép Micro, rồi thử lại. (${name})`;
+    case 'NotFoundError':
+      return `Không tìm thấy micro trên máy này. (${name})`;
+    case 'NotReadableError':
+    case 'AbortError':
+      return `Micro đang bị ứng dụng khác dùng (cuộc gọi, Zalo, ghi âm…). Tắt ứng dụng đó rồi thử lại. (${name})`;
+    default:
+      return `Không mở được micro. (${name}: ${(e as Error)?.message ?? ''})`;
+  }
+}
+
 const OFFSET_KEY = 'ktv.voiceOffsetMs';
+
+/** iPhone/iPad (iPadOS reports itself as a Mac with touch). */
+const IS_IOS =
+  typeof navigator !== 'undefined' &&
+  (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+/** 64 kbps mono Opus is plenty for a singing voice and halves the upload in a peer-to-peer room. */
+const VOICE_BITRATE = 64_000;
+const JITTER_BUFFER_MS = 80;
 function readOffset(): number {
   try {
     return Number(localStorage.getItem(OFFSET_KEY)) || 0;
@@ -43,6 +94,7 @@ export class VoiceService implements OnDestroy {
   private readonly peers = new Map<string, Peer>();
   private mic?: MediaStream;
   private micMeter?: { level: () => number; stop: () => void };
+  private wakeLock?: { release(): Promise<void> };
   private iceServers?: RTCIceServer[];
   private statsTimer = setInterval(() => void this.measureDelay(), 1000);
 
@@ -80,21 +132,26 @@ export class VoiceService implements OnDestroy {
   /** Go on stage: ask for the mic first, then claim the stage (S-02, S-05). */
   async startSinging(kind: HeadphoneKind): Promise<string | null> {
     const headphones = kind !== 'none';
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return 'Trình duyệt này không mở được micro. Hãy mở link https bằng Safari (iPhone) hoặc Chrome.';
+    }
     try {
-      this.mic = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          // With headphones the music cannot leak into the mic, so keep the raw voice for singing.
-          echoCancellation: !headphones,
-          noiseSuppression: !headphones,
-          autoGainControl: !headphones,
-          channelCount: 1,
-        },
-      });
-    } catch {
-      return 'Không mở được micro. Hãy cho phép trình duyệt dùng micro rồi thử lại.';
+      this.mic = await openMic(headphones);
+    } catch (e) {
+      return micErrorText(e);
+    }
+    const track = this.mic.getAudioTracks()[0];
+    if (!track || track.readyState !== 'live') {
+      this.stopMic();
+      return 'Micro mở được nhưng không có tiếng. Đóng các ứng dụng đang dùng micro (cuộc gọi, Zalo…) rồi thử lại. (track-ended)';
     }
     this.mic.getAudioTracks().forEach((t) => (t.contentHint = 'music'));
-    this.micMeter = this.audio.meter(this.mic);
+    // iPhone: opening the mic switches the phone's audio mode and can pause our audio clock.
+    await this.audio.ctx.resume().catch(() => {});
+    // iPhone: tapping the mic into Web Audio can make the captured voice crackle and break up
+    // (the phone's mic and our AudioContext run at different sample rates), so no meter there.
+    if (!IS_IOS) this.micMeter = this.audio.meter(this.mic);
+    void this.keepScreenOn();
     this.singerLagSec.set(this.measureSingerLag(kind));
     const ack = await this.rt.takeStage();
     if (!ack.ok) {
@@ -131,6 +188,11 @@ export class VoiceService implements OnDestroy {
       this.needsTap.set(true);
       this.error.set('Bấm để nghe được ca sĩ.');
     }
+  }
+
+  /** Singer: loudness of my own mic (0..1), for the on-screen meter. */
+  micLevel(): number {
+    return this.micMeter?.level() ?? 0;
   }
 
   /** Loudness of whoever is singing, for the chibi's mouth (A-04). */
@@ -206,7 +268,7 @@ export class VoiceService implements OnDestroy {
     for (const t of this.mic!.getAudioTracks()) {
       const sender = pc.addTrack(t, this.mic!);
       const params = sender.getParameters();
-      params.encodings = [{ ...(params.encodings?.[0] ?? {}), maxBitrate: 96_000 }];
+      params.encodings = [{ ...(params.encodings?.[0] ?? {}), maxBitrate: VOICE_BITRATE }];
       void sender.setParameters(params).catch(() => {});
     }
     peer.dc = pc.createDataChannel('pos', { ordered: false, maxRetransmits: 0 });
@@ -252,7 +314,11 @@ export class VoiceService implements OnDestroy {
       el.srcObject = stream;
       void this.playAudio(el);
       peer.audio = el;
-      peer.meter = this.audio.meter(stream);
+      if (!IS_IOS) peer.meter = this.audio.meter(stream);
+      // A slightly bigger jitter buffer rides out Wi-Fi/4G hiccups instead of dropping sound.
+      // The measured voice delay includes it, so the music still lines up (where supported).
+      const receiver = e.receiver as RTCRtpReceiver & { jitterBufferTarget?: number | null };
+      if ('jitterBufferTarget' in receiver) receiver.jitterBufferTarget = JITTER_BUFFER_MS;
       this.hearingSinger.set(true);
     };
     pc.ondatachannel = (e) => {
@@ -321,7 +387,19 @@ export class VoiceService implements OnDestroy {
     for (const id of [...this.peers.keys()]) this.close(id);
   }
 
+  /** Phones dim and lock while you sing, which stops the mic; ask the screen to stay on. */
+  private async keepScreenOn() {
+    try {
+      const nav = navigator as Navigator & { wakeLock?: { request(t: 'screen'): Promise<{ release(): Promise<void> }> } };
+      this.wakeLock = (await nav.wakeLock?.request('screen')) ?? undefined;
+    } catch {
+      /* not supported or refused: the singer just has to keep the screen on */
+    }
+  }
+
   private stopMic() {
+    void this.wakeLock?.release().catch(() => {});
+    this.wakeLock = undefined;
     this.micOn.set(false);
     this.micMeter?.stop();
     this.micMeter = undefined;
