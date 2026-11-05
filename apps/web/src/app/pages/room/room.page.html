@@ -122,6 +122,12 @@
       <span class="meter" role="meter" [attr.aria-label]="'Âm lượng micro' | t" [attr.aria-valuenow]="micLevel()" aria-valuemin="0" aria-valuemax="100">
         <i [style.width.%]="micLevel()"></i>
       </span>
+      <span class="echo" role="radiogroup" [attr.aria-label]="'Tiếng vọng' | t">
+        🎚️ {{ 'Tiếng vọng' | t }}
+        @for (l of echoLevels; track l) {
+          <button class="chip" role="radio" [attr.aria-checked]="voice.echoLevel() === l" (click)="voice.setEcho(l)">{{ echoLabels[l] | t }}</button>
+        }
+      </span>
       <button class="btn-ghost" (click)="stopSinging()">{{ 'Xuống sân khấu' | t }}</button>
       @if (micSilentSec() > 5 && !isIOS) {
         <p class="hint">Micro chưa nghe thấy tiếng. Thử nói to hơn. Trên iPhone: kiểm tra Cài đặt → Safari → Micro; nếu dùng tai nghe Bluetooth, thử tháo ra.</p>

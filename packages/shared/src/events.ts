@@ -160,6 +160,8 @@ export interface SingerPosition {
    * Bluetooth headphones, mic input. The singer sings to what they hear, so listeners add this too.
    */
   lagSec?: number;
+  /** The singer's echo choice 0–3 (S-04); every listener adds it to the singer's voice. */
+  echo?: number;
 }
 
 export type HeadphoneKind = 'wired' | 'bluetooth' | 'none';

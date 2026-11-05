@@ -1,4 +1,14 @@
-# Progress — 5 Nov 2026
+# Progress — 6 Nov 2026
+
+## Update: KTV echo for singers (S-04)
+- Singer picks Tắt / Nhẹ / Vừa / KTV; the level travels with the music positions; listeners play the
+  singer's voice through `voice/echo.ts` only while it is on; the duet partner's voice gets it too;
+  singers with headphones (not iPhone) hear their own echo.
+- Checked: both listeners switch to the echo path; T-01 with echo on worst 15.5 ms; test:voice passes.
+- To check on real devices: an iPhone listener with echo on (Safari plays it through Web Audio).
+- Next (agreed list): video on the 3D TV, hide-all button + phone tabs, then song search / "Bài tủ".
+
+---
 
 ## Update: Phase 6 complete — every phase of the build plan is built
 - Offline banner (also on the browser's `offline` event, since a WebSocket only notices after its

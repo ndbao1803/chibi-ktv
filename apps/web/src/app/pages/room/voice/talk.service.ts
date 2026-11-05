@@ -13,6 +13,8 @@ import { AuthService } from '../../../core/auth.service';
 import { RealtimeService } from '../realtime.service';
 import { AudioService } from '../audio.service';
 import { tuneOpus } from './opus';
+import { createEcho, type Echo, type EchoLevel } from './echo';
+import { VoiceService } from './voice.service';
 
 /**
  * One connection per pair of people, carrying exactly one two-way audio line. Only the person with
@@ -29,6 +31,8 @@ interface TalkPeer {
   gain?: GainNode;
   an?: AnalyserNode;
   buf?: Float32Array<ArrayBuffer>;
+  /** The duet partner's voice gets the lead singer's echo too (S-04). */
+  echo?: { fx: Echo; level: EchoLevel };
 }
 
 const IS_IOS =
@@ -63,6 +67,7 @@ export class TalkService implements OnDestroy {
   private readonly auth = inject(AuthService);
   private readonly http = inject(HttpClient);
   private readonly audio = inject(AudioService);
+  private readonly voice = inject(VoiceService);
 
   private readonly peers = new Map<string, TalkPeer>();
   /** Calls being set up right now (between "start" and the connection existing), so we never call twice. */
@@ -303,7 +308,12 @@ export class TalkService implements OnDestroy {
     }
     this.applyGate();
     const now = this.audio.ctx.currentTime;
-    for (const [id, p] of this.peers) p.gain?.gain.setTargetAtTime(this.gainFor(id), now, 0.08);
+    const stage = this.rt.stage();
+    const echo = (this.iAmLead() ? this.voice.echoLevel() : Math.round(this.voice.singerPos()?.msg.echo ?? 0)) as EchoLevel;
+    for (const [id, p] of this.peers) {
+      p.gain?.gain.setTargetAtTime(this.gainFor(id), now, 0.08);
+      this.partnerEcho(p, id === stage.partnerId ? echo : 0);
+    }
   }
 
   private keyDown = (e: KeyboardEvent) => {
@@ -437,12 +447,34 @@ export class TalkService implements OnDestroy {
     Object.assign(peer, { el, src, gain, an, buf: new Float32Array(new ArrayBuffer(an.fftSize * 4)) });
   }
 
+  /** Only the partner's line goes through an echo (a reverb per person would cost too much CPU). */
+  private partnerEcho(p: TalkPeer, level: EchoLevel) {
+    if (!p.src || !p.gain || (p.echo?.level ?? 0) === level) return;
+    if (level === 0) {
+      p.src.disconnect(p.echo!.fx.input);
+      p.echo!.fx.disconnect();
+      p.echo = undefined;
+      p.src.connect(p.gain);
+      return;
+    }
+    if (!p.echo) {
+      const fx = createEcho(this.audio.ctx);
+      p.src.disconnect(p.gain);
+      p.src.connect(fx.input);
+      fx.output.connect(p.gain);
+      p.echo = { fx, level };
+    }
+    p.echo.level = level;
+    p.echo.fx.set(level);
+  }
+
   private close(id: string) {
     clearTimeout(this.retries.get(id));
     this.retries.delete(id);
     const p = this.peers.get(id);
     if (!p) return;
     p.src?.disconnect();
+    p.echo?.fx.disconnect();
     p.gain?.disconnect();
     if (p.el) p.el.srcObject = null;
     p.pc.close();

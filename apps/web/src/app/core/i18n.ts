@@ -154,6 +154,10 @@ const EN: Record<string, string> = {
   'Giữ để nói (V)': 'Hold to talk (V)',
   'Bỏ qua bài này': 'Skip this song',
   'Rút phiếu bỏ qua': 'Take back skip vote',
+  'Tiếng vọng': 'Echo',
+  'Tắt': 'Off',
+  'Nhẹ': 'Light',
+  'Vừa': 'Medium',
 };
 
 /** `{{ 'Thêm bài' | t }}` → "Add song" in English. Not pure: it re-reads the language signal. */

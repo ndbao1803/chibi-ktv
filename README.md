@@ -160,6 +160,8 @@ Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length
 - **Rating:** 30 s before a song ends (or when it is skipped) everyone except the singers gets 1–5 stars. 10 s after the end the KTV score screen counts up to the score (stars plus up to +10 for hype) with a comment. Scores go in the chat; **🏆 Bảng điểm** shows the night's best and "Ca sĩ của đêm".
 - `pnpm test:party` checks all of this with three browsers.
 
+**KTV echo (S-04):** while singing, pick **🎚️ Tiếng vọng: Tắt · Nhẹ · Vừa · KTV**. Everyone hears that echo (a short repeating echo plus a little room reverb) on your voice, and on a duet partner's voice too. With headphones on a laptop you also hear a bit of your own echo, like a real karaoke mixer (not on iPhone, where tapping the mic makes the voice crackle). The choice is remembered.
+
 **Phase 6 (polish):**
 
 - **When things go wrong:** a red banner when the connection drops ("Mất kết nối — đang thử kết nối lại…"; your seat and songs are kept for 20 s), clear messages for a blocked mic or an unplayable video, and a "waking up" note while the free server starts (it sleeps when nobody uses it and needs about a minute).

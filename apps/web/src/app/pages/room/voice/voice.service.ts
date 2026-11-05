@@ -7,6 +7,7 @@ import { RealtimeService } from '../realtime.service';
 import { AudioService } from '../audio.service';
 import { BLUETOOTH_LAG_SEC, ema, MANUAL_OFFSET_LIMIT_MS } from '../sync/sync-math';
 import { tuneOpus } from './opus';
+import { createEcho, type Echo, type EchoLevel } from './echo';
 
 interface Peer {
   /** out = I am the singer calling a listener; in = a singer calling me. */
@@ -15,6 +16,9 @@ interface Peer {
   dc?: RTCDataChannel;
   pendingIce: RTCIceCandidateInit[];
   audio?: HTMLAudioElement;
+  stream?: MediaStream;
+  /** Listener: the singer's voice through the echo, only while the singer has echo on (S-04). */
+  echo?: { fx: Echo; src: MediaStreamAudioSourceNode; level: EchoLevel };
   meter?: { level: () => number; stop: () => void };
   statsPrev?: { jbd: number; count: number };
 }
@@ -63,6 +67,15 @@ export function micErrorText(e: unknown): string {
 }
 
 const OFFSET_KEY = 'ktv.voiceOffsetMs';
+const ECHO_KEY = 'ktv.echo';
+function readEcho(): EchoLevel {
+  try {
+    const v = Number(localStorage.getItem(ECHO_KEY));
+    return ([0, 1, 2, 3].includes(v) ? v : 0) as EchoLevel;
+  } catch {
+    return 0;
+  }
+}
 
 /** iPhone/iPad (iPadOS reports itself as a Mac with touch). */
 const IS_IOS =
@@ -121,6 +134,11 @@ export class VoiceService implements OnDestroy {
   readonly singerLagSec = signal(0);
   /** Listener: my fine-tune (ms, positive = music later), remembered in this browser. */
   readonly manualOffsetMs = signal(readOffset());
+  /** Singer: KTV echo on my voice, heard by everyone (S-04). Remembered in this browser. */
+  readonly echoLevel = signal<EchoLevel>(readEcho());
+  /** Singer: the echo part only, in my own headphones (not on iPhone, not without headphones). */
+  private monitor?: { fx: Echo; src: MediaStreamAudioSourceNode };
+  private headphoneKind: HeadphoneKind = 'wired';
   /** The headphones answer, asked once per visit and reused when my turn starts by itself. */
   readonly headphones = signal<HeadphoneKind | null>(null);
   /** Singer: the automatic mic start at my turn failed; the page shows a retry button. */
@@ -204,6 +222,8 @@ export class VoiceService implements OnDestroy {
       return ack.error;
     }
     this.micOn.set(true);
+    this.headphoneKind = kind;
+    this.updateMonitor();
     // If a turn already put me on stage, the stage did not change, so connect to listeners now.
     await this.reconcile(this.rt.stage(), this.rt.members());
     return null;
@@ -216,8 +236,61 @@ export class VoiceService implements OnDestroy {
 
   /** Singer: send my music position to every listener (about 4 times a second). */
   sendPosition(msg: SingerPosition) {
-    const text = JSON.stringify({ ...msg, lagSec: this.singerLagSec() });
+    const text = JSON.stringify({ ...msg, lagSec: this.singerLagSec(), echo: this.echoLevel() });
     for (const p of this.peers.values()) if (p.dc?.readyState === 'open') p.dc.send(text);
+  }
+
+  setEcho(level: EchoLevel) {
+    this.echoLevel.set(level);
+    try {
+      localStorage.setItem(ECHO_KEY, String(level));
+    } catch {
+      /* not remembered */
+    }
+    this.updateMonitor();
+  }
+
+  /** Singer with headphones: hear a little of my own echo, like a real KTV mixer. */
+  private updateMonitor() {
+    const want = !!this.mic && this.micOn() && !IS_IOS && this.headphoneKind !== 'none' && this.echoLevel() > 0;
+    if (!want) {
+      this.monitor?.src.disconnect();
+      this.monitor?.fx.disconnect();
+      this.monitor = undefined;
+      return;
+    }
+    if (!this.monitor) {
+      const ctx = this.audio.ctx;
+      const src = ctx.createMediaStreamSource(this.mic!);
+      const fx = createEcho(ctx, false);
+      src.connect(fx.input);
+      fx.output.connect(ctx.destination);
+      this.monitor = { fx, src };
+    }
+    this.monitor.fx.set(this.echoLevel());
+  }
+
+  /** Listener: when the singer turns echo on, play their voice through it (the plain path otherwise). */
+  private applyEcho(peer: Peer, level: EchoLevel) {
+    if ((peer.echo?.level ?? 0) === level || !peer.stream || !peer.audio) return;
+    if (level === 0) {
+      peer.echo!.src.disconnect();
+      peer.echo!.fx.disconnect();
+      peer.echo = undefined;
+      peer.audio.muted = false;
+      return;
+    }
+    if (!peer.echo) {
+      const ctx = this.audio.ctx;
+      const src = ctx.createMediaStreamSource(peer.stream);
+      const fx = createEcho(ctx);
+      src.connect(fx.input);
+      fx.output.connect(ctx.destination);
+      peer.echo = { fx, src, level };
+      peer.audio.muted = true; // the element keeps the stream flowing; Web Audio plays it
+    }
+    peer.echo.level = level;
+    peer.echo.fx.set(level);
   }
 
   /** Listener: retry playing the singer's voice after a tap (Safari/iOS blocks autoplay outside a user gesture). */
@@ -365,6 +438,7 @@ export class VoiceService implements OnDestroy {
       el.srcObject = stream;
       void this.playAudio(el);
       peer.audio = el;
+      peer.stream = stream;
       if (!IS_IOS) peer.meter = this.audio.meter(stream);
       // A slightly bigger jitter buffer rides out Wi-Fi/4G hiccups instead of dropping sound.
       // The measured voice delay includes it, so the music still lines up (where supported).
@@ -374,7 +448,11 @@ export class VoiceService implements OnDestroy {
     };
     pc.ondatachannel = (e) => {
       peer.dc = e.channel;
-      e.channel.onmessage = (ev) => this.singerPos.set({ msg: JSON.parse(ev.data as string), receivedAt: performance.now() });
+      e.channel.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data as string) as SingerPosition;
+        this.singerPos.set({ msg, receivedAt: performance.now() });
+        this.applyEcho(peer, Math.max(0, Math.min(3, Math.round(msg.echo ?? 0))) as EchoLevel);
+      };
     };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed') this.error.set('Không nghe được ca sĩ: mạng chặn kết nối trực tiếp.');
@@ -424,6 +502,8 @@ export class VoiceService implements OnDestroy {
     const p = this.peers.get(id);
     if (!p) return;
     p.meter?.stop();
+    p.echo?.src.disconnect();
+    p.echo?.fx.disconnect();
     if (p.audio) p.audio.srcObject = null;
     p.dc?.close();
     p.pc.close();
@@ -449,6 +529,9 @@ export class VoiceService implements OnDestroy {
   }
 
   private stopMic() {
+    this.monitor?.src.disconnect();
+    this.monitor?.fx.disconnect();
+    this.monitor = undefined;
     void this.wakeLock?.release().catch(() => {});
     this.wakeLock = undefined;
     this.micOn.set(false);

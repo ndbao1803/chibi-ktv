@@ -8,6 +8,7 @@ import { AuthService } from '../../core/auth.service';
 import { RealtimeService } from './realtime.service';
 import { VoiceService } from './voice/voice.service';
 import { TalkService } from './voice/talk.service';
+import { ECHO_LABELS, type EchoLevel } from './voice/echo';
 import { clink, countBeep, fartSound, propHit, PROP_GAP_MS, whoop } from './sounds';
 import { ChatPanel } from './chat/chat-panel';
 import { PartyBar } from './party/party-bar';
@@ -160,6 +161,9 @@ export class RoomPage implements OnInit, OnDestroy {
     await this.audio.unlock();
   }
 
+  /** S-04: the singer's KTV echo levels. */
+  protected readonly echoLevels: EchoLevel[] = [0, 1, 2, 3];
+  protected readonly echoLabels = ECHO_LABELS;
   private bubbled = 0;
   /** Phase 5 effects from anyone in the room. */
   private onFx(e: FxEvent) {
