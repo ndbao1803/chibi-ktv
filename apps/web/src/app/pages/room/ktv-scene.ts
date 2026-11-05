@@ -8,6 +8,22 @@ import { SEATS, seatRoute, STAGE, stageRoute, stageSlot } from './scene/seats';
 
 export type CameraView = 'all' | 'stage' | 'me';
 
+/** Where the 3D TV's screen is on the page, in CSS pixels (viewport coordinates). */
+export interface TvRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The TV screen's corners in the room (see room-decor.ts: a 5.5 × 3.1 plane at z = -4.81). */
+const TV_CORNERS = [
+  new THREE.Vector3(-2.75, 4.15, -4.81), // top left
+  new THREE.Vector3(2.75, 4.15, -4.81), // top right
+  new THREE.Vector3(-2.75, 1.05, -4.81), // bottom left
+  new THREE.Vector3(2.75, 1.05, -4.81), // bottom right
+];
+
 interface SeatMarker {
   group: THREE.Group;
   ring: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>;
@@ -69,6 +85,17 @@ export class KtvScene {
   onSeatClick: (seat: number) => void = () => {};
   /** The frame rate stayed low, so the extra effects were switched off (RD-05). */
   onSlow: () => void = () => {};
+  /**
+   * The TV's rectangle on the page whenever the camera looks at it nearly straight on, or null.
+   * The page lays the real YouTube player over it: flat and untransformed (P-04), so a TV seen at
+   * an angle (a trapezoid) gets null and the video stays in its corner panel.
+   */
+  onTvRect: (r: TvRect | null) => void = () => {};
+  private lastTv = '';
+  /** Send the TV rectangle again on the next frame, even if it has not moved. */
+  reportTvAgain() {
+    this.lastTv = '#';
+  }
   /** Called if the browser takes the 3D context away later (GPU reset, too many tabs). */
   onLost: () => void = () => {};
 
@@ -488,6 +515,36 @@ export class KtvScene {
     return g;
   }
 
+  /** Projects the TV's corners and reports a rectangle only when they form a near-rectangle. */
+  private reportTv() {
+    const box = this.canvas.getBoundingClientRect();
+    const p = TV_CORNERS.map((c) => {
+      const v = c.clone().project(this.camera);
+      return { x: box.left + ((v.x + 1) / 2) * box.width, y: box.top + ((1 - v.y) / 2) * box.height, behind: v.z > 1 };
+    });
+    const [tl, tr, bl, br] = p;
+    const top = tr.x - tl.x, bottom = br.x - bl.x, left = bl.y - tl.y, right = br.y - tr.y;
+    const square =
+      !p.some((c) => c.behind) &&
+      top > 0 && bottom > 0 && left > 0 && right > 0 &&
+      Math.min(top, bottom) / Math.max(top, bottom) > 0.88 && // a little keystone (camera above) is fine
+      Math.min(left, right) / Math.max(left, right) > 0.88 &&
+      Math.abs(tl.x - bl.x) < top * 0.1 && Math.abs(tr.x - br.x) < top * 0.1; // a little lean too
+    let rect: TvRect | null = null;
+    if (square) {
+      // The largest upright box inside the projected screen…
+      const x = Math.max(tl.x, bl.x), y = Math.max(tl.y, tr.y);
+      const w = Math.min(tr.x, br.x) - x, h = Math.min(bl.y, br.y) - y;
+      // …then a 16:9 video in its upper part, so the singer standing in front of the TV stays visible.
+      const vh = Math.min(h * 0.86, (w * 9) / 16), vw = (vh * 16) / 9;
+      rect = { x: x + (w - vw) / 2, y: y + h * 0.03, w: vw, h: vh };
+    }
+    const key = rect ? `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.w)},${Math.round(rect.h)}` : '';
+    if (key === this.lastTv) return;
+    this.lastTv = key;
+    this.onTvRect(rect);
+  }
+
   /* ---------- internals ---------- */
 
   private slotSpot(index: number) {
@@ -559,5 +616,6 @@ export class KtvScene {
     const pulse = 0.45 + Math.sin(t * 4) * 0.35;
     for (const m of this.markers) if (m.group.visible) m.ring.material.opacity = pulse;
     this.renderer.render(this.scene, this.camera);
+    this.reportTv();
   };
 }

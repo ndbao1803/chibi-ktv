@@ -146,37 +146,79 @@
   padding: 20px; text-align: center; width: min(320px, calc(100% - 32px));
   p { margin: 0 0 12px; font-weight: 600; }
 }
-@media (max-width: 860px) {
-  .side { position: absolute; top: calc(118px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); width: auto; max-height: none; }
-  .members { display: none; }
-  .left { width: auto; right: max(16px, env(safe-area-inset-right, 0px)); min-width: 0; }
-  .cung { left: 50%; }
-}
-
 .offline {
   top: calc(12px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 8;
   max-width: min(460px, calc(100% - 32px)); padding: 10px 16px; border-radius: 10px; font-size: 13px;
   background: #3a1020; border: 1px solid var(--bad); color: #ffd9e3; text-align: center;
 }
 
-/* N-07: phone held upright — no 3D, everything stacked in one scrolling column. */
-:host(.remote) {
-  position: static; min-height: 100dvh; overflow-y: auto;
-  padding: calc(12px + env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
-  display: flex; flex-direction: column; gap: 8px;
-  .scene { display: none; }
-  .hud.side, .hud.left { position: static; width: auto; max-height: none; overflow: visible; min-width: 0; }
-  .hud.side { order: 1; }
-  .hud.left { order: 0; display: contents; }
-  .brand { order: 0; align-self: stretch; }
-  .chatbox { order: 3; width: auto; }
-  .spacer { display: none; }
-  .controls { order: 2; }
-  .members { display: block; }
+
+/* ---------- a clean screen ---------- */
+.tabs { display: none; }
+.showui {
+  top: calc(12px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); z-index: 6;
+  padding: 8px 14px; border-radius: 999px; border: 1px solid var(--cyan); background: var(--panel-solid); color: var(--fg); font-weight: 600;
+}
+/* "👁 Ẩn bảng": only the room and the video stay (the corner video keeps its panel; a TV video loses the strip). */
+:host(.bare) {
+  .left, .songs { display: none; }
+  app-score-overlay ::ng-deep .trophy, app-score-overlay ::ng-deep .board { display: none; }
+  app-player-panel ::ng-deep .player.tv { background: none; border: 0; padding: 0; }
+  app-player-panel ::ng-deep .player.tv > :not(.screen) { display: none; }
 }
 
-.echo {
-  display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 12px; color: var(--muted);
-  .chip { padding: 3px 8px; font-size: 11.5px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.04); color: var(--fg); }
-  .chip[aria-checked='true'] { border-color: var(--pink); background: rgba(255, 63, 164, 0.15); }
+/* ---------- phones and small tablets: the room stays visible, controls live in bottom sheets ---------- */
+@media (max-width: 860px) {
+  .side {
+    top: calc(8px + env(safe-area-inset-top, 0px)); left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px));
+    width: auto; max-height: none; overflow: visible;
+  }
+  .side app-player-panel { width: min(100%, 420px); margin-left: auto; }
+  .left { position: static; display: contents; }
+  .spacer { display: none; }
+  .cung { left: 50%; }
+  .hideui { display: none; }
+
+  /* Every sheet: above the tab bar, scrolls inside, hidden unless its tab is open. */
+  .songs, .chatbox, .controls, .brand {
+    position: fixed; z-index: 4; display: none;
+    left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px));
+    bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+    /* Ends below the video panel (16:9 video + its title and volume rows), never over it (P-04). */
+    max-height: calc(100dvh - 62px - min(100vw - 16px, 420px) * 9 / 16 - 112px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto; width: auto; min-width: 0; margin: 0;
+    animation: sheet 0.18s ease-out;
+  }
+  .songs { flex-direction: column; gap: 8px; }
+  .members { display: block; }
+  :host([data-tab='songs']) .songs { display: flex; }
+  :host([data-tab='chat']) .chatbox { display: flex; }
+  :host([data-tab='room']) .brand { display: flex; }
+  :host([data-tab='party']) .controls, :host([data-tab='sing']) .controls { display: flex; }
+  :host([data-tab='party']) .controls > :not(app-party-bar) { display: none; }
+  :host([data-tab='sing']) .controls > app-party-bar { display: none; }
+
+  .tabs {
+    display: flex; left: 0; right: 0; bottom: 0; z-index: 5;
+    padding: 6px max(6px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(6px, env(safe-area-inset-left, 0px));
+    background: var(--panel-solid); border-top: 1px solid var(--line); justify-content: space-around; gap: 2px;
+    button {
+      position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+      background: none; border: 0; color: var(--muted); font-size: 11px; padding: 4px 2px; border-radius: 10px;
+      span { font-size: 19px; line-height: 1; }
+    }
+    button[aria-pressed='true'] { color: var(--fg); background: rgba(255, 63, 164, 0.15); }
+    .dot { position: absolute; top: 2px; right: calc(50% - 16px); width: 8px; height: 8px; border-radius: 50%; background: var(--pink); box-shadow: 0 0 8px var(--pink); }
+  }
+  :host(.bare) .tabs { display: none; }
 }
+/* Phones held sideways: the video keeps the right side, sheets open on the left. */
+@media (max-width: 860px) and (orientation: landscape) {
+  .side app-player-panel { width: 372px; }
+  .songs, .chatbox, .controls, .brand {
+    right: calc(372px + 16px + env(safe-area-inset-right, 0px));
+    max-height: calc(100dvh - 76px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+}
+@keyframes sheet { from { transform: translateY(16px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .songs, .chatbox, .controls, .brand { animation: none; } }

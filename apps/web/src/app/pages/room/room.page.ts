@@ -16,9 +16,27 @@ import { ScoreOverlay } from './score/score-overlay';
 import { CUNGLY_DO_MS, REACTIONS } from '@ktv/shared';
 import { AudioService } from './audio.service';
 import { PlayerPanel } from './player/player-panel';
-import { KtvScene, type CameraView } from './ktv-scene';
+import { KtvScene, type CameraView, type TvRect } from './ktv-scene';
 
 const LOW_POWER_KEY = 'ktv.lowPower';
+const TV_KEY = 'ktv.videoOnTv';
+/** Anything that may be drawn over the TV area: the player must never be under one of these (P-04). */
+const TV_BLOCKERS = '.panel, .toast, .gate, .dialog, .invite, .cung, .offline, .alert, .trophy, .no3d, .tabs, .showui, app-score-overlay .screen, app-score-overlay .rate, app-score-overlay .board';
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v === '1';
+  } catch {
+    return fallback;
+  }
+}
+function writeFlag(key: string, on: boolean) {
+  try {
+    localStorage.setItem(key, on ? '1' : '0');
+  } catch {
+    /* not remembered */
+  }
+}
 function readLowPower(): boolean {
   try {
     const saved = localStorage.getItem(LOW_POWER_KEY);
@@ -35,7 +53,7 @@ function readLowPower(): boolean {
   templateUrl: './room.page.html',
   styleUrl: './room.page.scss',
   providers: [RealtimeService, VoiceService, TalkService], // one connection per visit to a room
-  host: { '[class.remote]': 'remote' },
+  host: { '[class.bare]': 'uiHidden()', '[attr.data-tab]': "tab() ?? 'none'" },
 })
 export class RoomPage implements OnInit, OnDestroy {
   protected readonly auth = inject(AuthService);
@@ -53,8 +71,6 @@ export class RoomPage implements OnInit, OnDestroy {
   protected readonly copied = signal(false);
   /** The browser could not run the 3D room; everything else still works. */
   protected readonly no3d = signal(false);
-  /** N-07: phones held upright get the "remote" view: no 3D, the panels stacked to scroll. */
-  protected readonly remote = matchMedia('(max-width: 600px) and (orientation: portrait)').matches;
   /** E-01: lost the connection for more than 2 s (a blip is not worth a banner). */
   protected readonly offline = signal(false);
   private offlineTimer?: ReturnType<typeof setTimeout>;
@@ -79,6 +95,13 @@ export class RoomPage implements OnInit, OnDestroy {
     effect(() => this.flash(this.rt.notice()));
     effect(() => this.flash(this.voice.error()));
     effect(() => this.flash(this.talk.error()));
+    // Phones: my turn (or a dropped singer) opens the 🎤 sheet, so "Bật micro" / "Giữ bài" is not missed.
+    effect(() => {
+      const needsMe = (this.isSinger() && !this.voice.micOn()) || (this.isPartner() && !this.partnerMic()) || !!this.singerAway();
+      untracked(() => {
+        if (needsMe && !this.uiHidden()) this.tab.set('sing');
+      });
+    });
     effect(() => {
       const up = this.rt.connected();
       untracked(() => {
@@ -115,11 +138,12 @@ export class RoomPage implements OnInit, OnDestroy {
 
   ngOnInit() {
     window.addEventListener('offline', this.netDown);
+    window.addEventListener('keydown', this.keyH);
     window.addEventListener('online', this.netUp);
     // Join first: the room (music, voice, queue) must work even if 3D does not.
     void this.rt.join(this.code().toUpperCase());
     // ?lite=1 skips the 3D room (slow phones, and the multi-browser sync test).
-    if (new URLSearchParams(location.search).has('lite') || this.remote) return;
+    if (new URLSearchParams(location.search).has('lite')) return;
     try {
       this.scene = new KtvScene(this.canvas().nativeElement);
       this.scene.levelOf = (id) =>
@@ -127,6 +151,11 @@ export class RoomPage implements OnInit, OnDestroy {
       this.scene.talkOf = (id) => this.talk.levelOf(id);
       this.scene.onLost = () => this.no3d.set(true);
       this.scene.onSeatClick = (seat) => void this.changeSeat(seat);
+      this.scene.onTvRect = (r) => {
+        this.tvCandidate = r;
+        this.checkTv();
+      };
+      this.scene.reportTvAgain(); // the scene already measured once, before this listener existed
       this.scene.onSlow = () => {
         this.lowPower.set(true);
         this.flash('Máy hơi chậm: đã tắt bớt hiệu ứng trang trí để phòng mượt hơn.');
@@ -148,8 +177,10 @@ export class RoomPage implements OnInit, OnDestroy {
     clearInterval(this.micTimer);
     clearInterval(this.nowTimer);
     clearInterval(this.speakTimer);
+    clearInterval(this.tvTimer);
     clearInterval(this.shakeTimer);
     window.removeEventListener('offline', this.netDown);
+    window.removeEventListener('keydown', this.keyH);
     window.removeEventListener('online', this.netUp);
     clearInterval(this.cungTimer);
     this.scene?.dispose();
@@ -159,6 +190,72 @@ export class RoomPage implements OnInit, OnDestroy {
   /** R-03: the click that allows sound in this tab. */
   async enter() {
     await this.audio.unlock();
+  }
+
+  /* ---------- a clean screen: hide everything, and tabs on phones ---------- */
+
+  /** "👁 Ẩn bảng": only the room and the video stay. Key H toggles it. */
+  protected readonly uiHidden = signal(false);
+  setHidden(on: boolean) {
+    this.uiHidden.set(on);
+    if (on) this.tab.set(null);
+    setTimeout(() => this.checkTv()); // panels gone: the TV may be free now
+  }
+  /** Phones: which sheet is open (desktop ignores it). */
+  protected readonly tab = signal<'songs' | 'chat' | 'party' | 'sing' | 'room' | null>(null);
+  protected readonly tabs = [
+    { id: 'songs', icon: '🎵', label: 'Bài' },
+    { id: 'chat', icon: '💬', label: 'Chat' },
+    { id: 'party', icon: '🎉', label: 'Quẩy' },
+    { id: 'sing', icon: '🎤', label: 'Hát' },
+    { id: 'room', icon: '⚙️', label: 'Phòng' },
+  ] as const;
+  openTab(id: 'songs' | 'chat' | 'party' | 'sing' | 'room') {
+    this.tab.set(this.tab() === id ? null : id);
+  }
+  private readonly keyH = (e: KeyboardEvent) => {
+    if (e.code !== 'KeyH' || e.repeat || (e.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable]')) return;
+    this.setHidden(!this.uiHidden());
+  };
+
+  /* ---------- the video on the room's TV ---------- */
+
+  /** "📺 Video trên TV": show the YouTube player over the 3D TV when possible. Remembered. */
+  protected readonly tvMode = signal(readFlag(TV_KEY, true));
+  /** The rectangle the player may use right now (checked), or null for the corner panel. */
+  protected readonly tvRect = signal<TvRect | null>(null);
+  private tvCandidate: TvRect | null = null;
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private tvTimer = setInterval(() => this.checkTv(), 150);
+  toggleTv() {
+    this.tvMode.set(!this.tvMode());
+    writeFlag(TV_KEY, this.tvMode());
+    this.checkTv();
+  }
+  /**
+   * P-04: the player only goes over the TV if it stays at least 356 × 200 px, fully on screen, and
+   * nothing on the page (a panel, a dialog, a toast) would sit on top of it. Re-checked often,
+   * because toasts and cards come and go.
+   */
+  private checkTv() {
+    const r = this.tvCandidate;
+    let ok = !!r && this.tvMode() && !this.no3d() && r.w >= 356 && r.h >= 200 && r.x >= 0 && r.y >= 0 && r.x + r.w <= innerWidth && r.y + r.h <= innerHeight;
+    if (ok && r) {
+      const blockers = (this.host.nativeElement as HTMLElement).querySelectorAll<HTMLElement>(TV_BLOCKERS);
+      for (const el of blockers) {
+        if (el.closest('app-player-panel')) continue;
+        const b = el.getBoundingClientRect();
+        if (b.width === 0 || b.height === 0) continue;
+        if (b.left < r.x + r.w && b.right > r.x && b.top < r.y + r.h && b.bottom > r.y) {
+          ok = false;
+          break;
+        }
+      }
+    }
+    const next = ok ? r : null;
+    const cur = this.tvRect();
+    if (next === cur || (next && cur && next.x === cur.x && next.y === cur.y && next.w === cur.w && next.h === cur.h)) return;
+    this.tvRect.set(next);
   }
 
   /** S-04: the singer's KTV echo levels. */

@@ -1,11 +1,14 @@
-<section class="panel player" aria-label="Video">
+<section class="player" [class.panel]="!onTv()" [class.tv]="onTv()" aria-label="Video">
   <header>
     <b class="title">{{ song()?.title ?? 'Chưa có bài' }}</b>
     <span class="time">{{ time() }}</span>
   </header>
 
   <!-- The real YouTube player goes in here. Nothing is ever drawn on top of it. -->
-  <div class="screen" #host [hidden]="song()?.kind !== 'youtube'"></div>
+  <div class="screen" #host [hidden]="song()?.kind !== 'youtube'" [class.on-tv]="onTv()"
+       [style.left.px]="onTv() ? tv()!.x : null" [style.top.px]="onTv() ? tv()!.y : null"
+       [style.width.px]="onTv() ? tv()!.w : null" [style.height.px]="onTv() ? tv()!.h : null"></div>
+  @if (onTv()) { <p class="tvnote">{{ 'Video đang chiếu trên TV trong phòng' | t }}</p> }
 
   @if (song()?.kind === 'test') {
     <div class="metronome" aria-live="off">

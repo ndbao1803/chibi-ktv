@@ -1,7 +1,8 @@
 <canvas #scene class="scene" [attr.aria-label]="'Phòng karaoke 3D với các nhân vật chibi' | t"></canvas>
 
 <aside class="hud side">
-  <app-player-panel />
+  <app-player-panel [tv]="tvRect()" />
+  <div class="songs">
   <app-queue-panel (added)="onQueued($event)" />
   <section class="panel members" [attr.aria-label]="'Đang online' | t">
     <h2>Đang online · {{ count() }}/{{ rt.room()?.capacity ?? 8 }}</h2>
@@ -25,6 +26,7 @@
       }
     </ul>
   </section>
+  </div>
 </aside>
 
 <div class="hud left">
@@ -38,12 +40,14 @@
     <button class="btn-ghost small" (click)="copyLink()">{{ (copied() ? 'Đã chép link' : 'Chép link mời') | t }}</button>
     <button class="btn-ghost small" (click)="leave()">{{ 'Rời phòng' | t }}</button>
     <app-lang-switch />
+    <button class="btn-ghost small hideui" (click)="setHidden(true)" [title]="'Ẩn mọi bảng để xem phòng và nghe nhạc (phím H)' | t">👁 {{ 'Ẩn bảng' | t }}</button>
   </div>
-  @if (!no3d() && !remote) {
+  @if (!no3d()) {
     <div class="views" role="group" [attr.aria-label]="'Góc nhìn' | t">
       <button class="chip" [attr.aria-pressed]="view() === 'all'" (click)="setView('all')">{{ 'Cả phòng' | t }}</button>
       <button class="chip" [attr.aria-pressed]="view() === 'stage'" (click)="setView('stage')">{{ 'Sân khấu' | t }}</button>
       <button class="chip" [attr.aria-pressed]="view() === 'me'" (click)="setView('me')">{{ 'Chỗ tôi' | t }}</button>
+      <button class="chip" [attr.aria-pressed]="tvMode()" (click)="toggleTv()" [title]="'Chiếu video lên TV trong phòng khi nhìn thẳng vào TV' | t">{{ '📺 Video trên TV' | t }}</button>
       <button class="chip" [attr.aria-pressed]="lowPower()" (click)="toggleLowPower()" [title]="'Tắt đèn nháy, bóng bay và giảm độ nét để máy chạy mượt hơn' | t">{{ 'Tiết kiệm pin' | t }}</button>
     </div>
     <p class="seat-hint">{{ 'Bấm vào ghế trống để đổi chỗ' | t }}</p>
@@ -229,4 +233,19 @@
     <p>{{ rt.error() }}</p>
     <button class="btn-main" (click)="leave()">{{ 'Về sảnh' | t }}</button>
   </div>
+}
+
+@if (uiHidden()) {
+  <button class="hud showui" (click)="setHidden(false)" [title]="'Hiện lại các bảng (phím H)' | t">👁 {{ 'Hiện bảng' | t }}</button>
+} @else {
+  <!-- Phones: one bottom bar; each tab opens one sheet (desktop shows everything and hides this bar). -->
+  <nav class="hud tabs" [attr.aria-label]="'Bảng điều khiển' | t">
+    @for (t of tabs; track t.id) {
+      <button [attr.aria-pressed]="tab() === t.id" (click)="openTab(t.id)">
+        <span aria-hidden="true">{{ t.icon }}</span>{{ t.label | t }}
+        @if (t.id === 'sing' && (isSinger() || isPartner() || singerAway())) { <i class="dot"></i> }
+      </button>
+    }
+    <button (click)="setHidden(true)" [attr.aria-label]="'Ẩn bảng' | t"><span aria-hidden="true">👁</span>{{ 'Ẩn' | t }}</button>
+  </nav>
 }

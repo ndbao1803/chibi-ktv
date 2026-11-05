@@ -1,5 +1,6 @@
 import { TranslatePipe } from '../../../core/i18n';
-import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, untracked, viewChild } from '@angular/core';
+import { Component, computed, effect, ElementRef, inject, input, OnDestroy, signal, untracked, viewChild } from '@angular/core';
+import type { TvRect } from '../ktv-scene';
 import { expectedPosition, type PlaybackState, type SongRef } from '@ktv/shared';
 import { RealtimeService } from '../realtime.service';
 import { VoiceService } from '../voice/voice.service';
@@ -59,6 +60,10 @@ export class PlayerPanel implements OnDestroy {
   private probe: SyncProbe = { role: 'idle', mode: 'server', samplesMs: [], voiceDelayMs: 0, position: 0 };
 
   protected readonly song = computed(() => this.rt.playback().song);
+  /** Where the 3D TV is on the page, already checked by the room page to be uncovered; null = corner. */
+  readonly tv = input<TvRect | null>(null);
+  /** The YouTube player sits over the room's TV: still flat and untransformed, only moved (P-04). */
+  protected readonly onTv = computed(() => !!this.tv() && this.song()?.kind === 'youtube');
   protected readonly status = signal('');
   protected readonly errorText = signal('');
   protected readonly mode = signal<SyncMode>('server');

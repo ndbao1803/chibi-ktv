@@ -1,5 +1,14 @@
 # Progress — 6 Nov 2026
 
+## Update: video on the TV, hide-all, phone tabs
+- The real YouTube player sits over the 3D TV when seen straight on (flat, uncovered, ≥356×200),
+  else in its corner; toggle 📺. 👁 / H hides all panels. Phones keep the 3D room with a bottom tab
+  bar and slide-up sheets that end below the video (portrait) or beside it (landscape).
+- Fixed on the way: the scene measured the TV before the page listened, so the first position was lost.
+- Checked in Chromium (laptop + iPhone 13 size); T-01 17.6 ms, test:voice and test:party pass.
+
+---
+
 ## Update: KTV echo for singers (S-04)
 - Singer picks Tắt / Nhẹ / Vừa / KTV; the level travels with the music positions; listeners play the
   singer's voice through `voice/echo.ts` only while it is on; the duet partner's voice gets it too;

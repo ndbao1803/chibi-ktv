@@ -28,3 +28,8 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
   padding: 3px 8px; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .sync.follow { color: var(--cyan); border-color: rgba(51, 225, 237, 0.5); }
+
+/* Over the room's TV: the same flat player, only moved and resized (never rotated, skewed or covered). */
+.screen.on-tv { position: fixed; z-index: 3; min-height: 0; aspect-ratio: auto; border-radius: 2px; box-shadow: 0 0 40px rgba(255, 63, 164, 0.35); }
+.player.tv { padding: 8px 10px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+.tvnote { margin: 0; font-size: 11.5px; color: var(--muted); }

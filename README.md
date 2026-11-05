@@ -162,10 +162,13 @@ Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length
 
 **KTV echo (S-04):** while singing, pick **🎚️ Tiếng vọng: Tắt · Nhẹ · Vừa · KTV**. Everyone hears that echo (a short repeating echo plus a little room reverb) on your voice, and on a duet partner's voice too. With headphones on a laptop you also hear a bit of your own echo, like a real karaoke mixer (not on iPhone, where tapping the mic makes the voice crackle). The choice is remembered.
 
+**Video on the room's TV:** when the camera looks at the TV (the default view), the YouTube player moves onto the room's TV, sized 16:9 in its upper part so the singer in front stays visible. It is still the real player, flat and uncovered (YouTube's rules): at an angle, too small, or when any panel or popup would overlap it, it goes back to the corner. Switch it off with **📺 Video trên TV**.
+
+**A clean screen:** **👁 Ẩn bảng** (or the **H** key) hides every panel so you just see the room and hear the music; **👁 Hiện bảng** brings them back. On phones the 3D room now stays visible: the video is at the top and a bottom bar opens one sheet at a time — 🎵 Bài · 💬 Chat · 🎉 Quẩy · 🎤 Hát · ⚙️ Phòng. When it is your turn (or the singer drops), 🎤 opens by itself. Sideways, sheets open beside the video.
+
 **Phase 6 (polish):**
 
 - **When things go wrong:** a red banner when the connection drops ("Mất kết nối — đang thử kết nối lại…"; your seat and songs are kept for 20 s), clear messages for a blocked mic or an unplayable video, and a "waking up" note while the free server starts (it sleeps when nobody uses it and needs about a minute).
-- **Phones held upright** get a "remote" view: no 3D (saves battery), the video, queue, controls and chat stacked in one scrolling column. Turn the phone sideways and reload for the 3D room.
 - **English:** the **VI | EN** switch (login, lobby, room) translates the interface. Messages from the server (notices, chat lines) stay Vietnamese.
 - **Error reports** go to our own server log (Render → Logs), not to a paid service: the error text, the page and the browser name only.
 - **Privacy page** at `/privacy`: what is stored (account, rooms), what never is (voices, chat, scores).
