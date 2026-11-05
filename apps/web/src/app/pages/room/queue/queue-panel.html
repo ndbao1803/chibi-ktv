@@ -1,0 +1,43 @@
+<section class="panel queue" aria-label="Danh sách bài">
+  <h2>Danh sách bài</h2>
+
+  @if (current(); as c) {
+    <div class="now">
+      <span class="tag">Đang phát</span>
+      <b class="title">{{ c.entry.song.title }}</b>
+      <span class="who">
+        🎤 {{ c.entry.singerName }}@if (c.entry.singerId === meId()) { <small>(bạn)</small> }
+        @if (left(); as l) { · còn {{ l }} }
+      </span>
+      @if (canSkip() && rt.skip(); as s) {
+        <button type="button" class="btn-ghost skip" [class.voted]="iVoted()" (click)="toggleSkip()"
+                [attr.aria-pressed]="iVoted()" [title]="s.voterNames.length ? 'Đã bầu: ' + s.voterNames.join(', ') : 'Chưa ai bầu'">
+          ⏭ {{ iVoted() ? 'Rút phiếu bỏ qua' : 'Bỏ qua bài này' }} ({{ s.have }}/{{ s.needed }})
+        </button>
+      }
+    </div>
+  } @else {
+    <p class="idle">Chưa có bài — dán link YouTube để thêm vào danh sách.</p>
+  }
+
+  @if (entries().length) {
+    <ol class="list">
+      @for (e of entries(); track e.id; let i = $index) {
+        <li [class.mine]="e.singerId === meId()">
+          <span class="pos">{{ i + 1 }}</span>
+          <span class="txt"><b>{{ e.song.title }}</b><small>{{ e.singerName }}</small></span>
+          @if (e.singerId === meId()) {
+            <button type="button" class="x" (click)="remove(e)" [attr.aria-label]="'Bỏ bài ' + e.song.title">✕</button>
+          }
+        </li>
+      }
+    </ol>
+  }
+
+  <form class="add" (ngSubmit)="add()">
+    <label for="qlink" class="sr">Link YouTube</label>
+    <input id="qlink" name="qlink" [(ngModel)]="link" placeholder="Dán link YouTube karaoke…" autocomplete="off" />
+    <button class="btn-main" type="submit" [disabled]="busy() || !link.trim()">Thêm bài</button>
+  </form>
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+</section>

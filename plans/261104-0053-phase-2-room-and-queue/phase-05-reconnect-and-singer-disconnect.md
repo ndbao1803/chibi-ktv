@@ -13,7 +13,7 @@
 ## Overview
 
 - **Priority:** P1
-- **Status:** pending
+- **Status:** done
 - Today the last socket closing deletes the member instantly: presence drops them, the stage frees,
   and (after phase 02) their queue entries would go too — a plain F5 would cost you your turn. Add a
   20-second "away" grace that protects the member's **seat and queue entries**. The **stage is not

@@ -14,12 +14,14 @@
 
 <aside class="hud side">
   <app-player-panel />
+  <app-queue-panel (added)="onQueued($event)" />
   <section class="panel members" aria-label="Đang online">
     <h2>Đang online · {{ count() }}/{{ rt.room()?.capacity ?? 8 }}</h2>
     <ul>
       @for (m of rt.members(); track m.userId) {
-        <li [class.me]="m.userId === auth.user()?.id">
+        <li [class.me]="m.userId === auth.user()?.id" [class.away]="m.away">
           <i class="dot"></i>{{ m.displayName }}
+          @if (m.away) { <small>(mất kết nối)</small> }
           @if (m.userId === rt.stage().singerId) { <span class="mic">🎤 đang hát</span> }
           @if (m.userId === auth.user()?.id) { <small>(bạn)</small> }
         </li>
@@ -29,20 +31,30 @@
 </aside>
 
 <footer class="hud controls panel">
-  <form class="song" (ngSubmit)="setSong(link)">
-    <label for="link" class="sr">Link YouTube</label>
-    <input id="link" name="link" [(ngModel)]="link" placeholder="Dán link YouTube karaoke…" autocomplete="off" />
-    <button class="btn-main" type="submit" [disabled]="busy() || !link.trim()">Thêm bài</button>
+  <div class="song">
     <button class="btn-ghost" type="button" (click)="playTestTrack()" [disabled]="busy()">Nhạc thử nhịp</button>
     @if (rt.playback().song) {
       <button class="btn-ghost" type="button" (click)="togglePause()">{{ rt.playback().paused ? 'Phát tiếp' : 'Tạm dừng' }}</button>
     }
-  </form>
+  </div>
+
+  @if (singerAway(); as a) {
+    <div class="away-banner" role="status">
+      <span>{{ a.name }} mất kết nối — bài sẽ dừng sau {{ a.secs }} giây</span>
+      <button class="btn-main" (click)="keepSong()">Giữ bài</button>
+    </div>
+  }
 
   <div class="stage">
     @if (isSinger() && !voice.micOn()) {
       <span class="live">Đến lượt bạn hát!</span>
-      <button class="btn-pink" (click)="askHeadphones.set(true)" [disabled]="busy()">🎤 Bật micro</button>
+      @if (voice.autoArmFailed()) {
+        <button class="btn-pink" (click)="retryMic()" [disabled]="busy()">Không mở được micro — bấm để thử lại</button>
+      } @else if (voice.headphones() === null) {
+        <button class="btn-pink" (click)="ask('sing')" [disabled]="busy()">🎤 Bật micro</button>
+      } @else {
+        <span class="listening">Đang mở micro…</span>
+      }
       <button class="btn-ghost" (click)="stopSinging()">Bỏ lượt</button>
     } @else if (isSinger()) {
       <span class="live">● Đang hát · {{ voice.listenersConnected() }} người đang nghe</span>
@@ -70,20 +82,11 @@
           @if (voice.manualOffsetMs() !== 0) { <button type="button" class="reset" (click)="voice.setManualOffset(0)">Về 0</button> }
         </label>
       }
-      @if (rt.queue()?.current && rt.skip(); as s) {
-        <button class="btn-ghost skip" [class.voted]="iVotedSkip()" (click)="toggleSkip()"
-                [attr.aria-pressed]="iVotedSkip()" [title]="s.voterNames.join(', ')">
-          ⏭ {{ iVotedSkip() ? 'Đã bầu bỏ qua' : 'Bỏ qua' }} ({{ s.have }}/{{ s.needed }})
-        </button>
-      }
     } @else {
-      <button class="btn-pink" (click)="askHeadphones.set(true)" [disabled]="busy()">🎤 Lên hát</button>
+      <!-- The stage is never reserved: open whenever nobody is on it, even mid-song (R-09). -->
+      <button class="btn-pink" (click)="ask('sing')" [disabled]="busy()">🎤 Lên hát</button>
     }
   </div>
-
-  @if (waiting() > 0) {
-    <p class="next"><b>Tiếp theo ({{ waiting() }}):</b> {{ upNext().join(' · ') }}@if (waiting() > 3) { · … }</p>
-  }
 
   @if (actionError()) { <p class="error" role="alert">{{ actionError() }}</p> }
 
@@ -105,13 +108,16 @@
 @if (askHeadphones()) {
   <div class="hud dialog panel" role="dialog" aria-labelledby="hp-title">
     <h2 id="hp-title">Bạn đang dùng tai nghe gì?</h2>
+    @if (askHeadphones() === 'prepare') {
+      <p>Đã thêm bài! Trả lời một lần để tới lượt bạn, micro tự bật mà không cần bấm thêm.</p>
+    }
     <p><b>Nên dùng tai nghe có dây.</b> AirPods và tai nghe Bluetooth khác chuyển micro sang chế độ gọi điện chất lượng thấp, dễ làm giọng bị đứt quãng. Với tai nghe, giọng hát được gửi đi nguyên chất. Không có tai nghe, nhạc từ loa có thể lọt vào micro nên phải bật lọc tiếng vọng. Tai nghe Bluetooth chậm hơn khoảng 0,2 giây; ứng dụng sẽ bù phần này cho người nghe.</p>
     <div class="row">
-      <button class="btn-pink" (click)="sing('wired')">Có, tai nghe có dây</button>
-      <button class="btn-ghost" (click)="sing('bluetooth')">Tai nghe Bluetooth</button>
-      <button class="btn-ghost" (click)="sing('none')">Không có tai nghe</button>
+      <button class="btn-pink" (click)="answer('wired')">Có, tai nghe có dây</button>
+      <button class="btn-ghost" (click)="answer('bluetooth')">Tai nghe Bluetooth</button>
+      <button class="btn-ghost" (click)="answer('none')">Không có tai nghe</button>
     </div>
-    <button class="link" (click)="askHeadphones.set(false)">Huỷ</button>
+    <button class="link" (click)="askHeadphones.set(null)">{{ askHeadphones() === 'prepare' ? 'Để sau' : 'Huỷ' }}</button>
   </div>
 }
 

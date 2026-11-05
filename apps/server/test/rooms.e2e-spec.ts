@@ -184,7 +184,7 @@ describe('Playback, stage and WebRTC relay (e2e)', () => {
     expect(msg.from).not.toBe(bId);
   });
 
-  it('frees the stage when the singer disconnects', async () => {
+  it('frees the stage at once when the singer disconnects (R-09: the music itself keeps going)', async () => {
     const seen = once<StageState>(b, Events.stageState);
     a.close();
     expect(await seen).toEqual({ singerId: null, singerName: null });

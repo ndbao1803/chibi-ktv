@@ -57,8 +57,13 @@ export class RealtimeService implements OnDestroy {
     this.socket.on(Events.roomPresence, (list: PresenceList) => this.members.set(list));
     this.socket.on(Events.playState, (p: PlaybackState) => this.applyPlayback(p));
     this.socket.on(Events.stageState, (s: StageState) => this.stage.set(s));
-    this.socket.on(Events.queueState, (q: QueueState) => this.queue.set(q));
-    this.socket.on(Events.skipState, (s: SkipState) => this.skip.set(s));
+    // Drop out-of-order broadcasts: a higher rev is always newer.
+    this.socket.on(Events.queueState, (q: QueueState) => {
+      if (q.rev >= (this.queue()?.rev ?? -1)) this.queue.set(q);
+    });
+    this.socket.on(Events.skipState, (s: SkipState) => {
+      if (s.rev >= (this.skip()?.rev ?? -1)) this.skip.set(s);
+    });
     this.socket.on('room:notice', (msg: string) => this.notice.set(msg));
     this.socket.on(Events.rtcSignal, (m: RtcSignalFromServer) => this.onSignal(m));
     this.socket.on('auth:error', (msg: string) => this.error.set(msg));
@@ -89,6 +94,14 @@ export class RealtimeService implements OnDestroy {
   /** Adds a YouTube song with me as the singer. If nothing is playing, my turn starts right away. */
   addToQueue(link: string): Promise<Ack> {
     return this.emit(Events.queueAdd, { link });
+  }
+  /** Q-06: take one of my own songs out of the queue. */
+  removeFromQueue(entryId: string): Promise<Ack> {
+    return this.emit(Events.queueRemove, { entryId });
+  }
+  /** R-09: the singer dropped; let the song play to the end anyway. */
+  keepSong(): Promise<Ack> {
+    return this.emit(Events.turnKeep, {});
   }
   /** Y-11: tell the server how long the video is, so it can end the song on time. */
   reportDuration(rev: number, durationSec: number): void {

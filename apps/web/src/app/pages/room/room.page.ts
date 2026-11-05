@@ -1,7 +1,7 @@
 import { Component, computed, effect, ElementRef, inject, input, OnDestroy, OnInit, signal, viewChild } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { TEST_TRACK_LINK, type HeadphoneKind } from '@ktv/shared';
+import { QueuePanel } from './queue/queue-panel';
 import { AuthService } from '../../core/auth.service';
 import { RealtimeService } from './realtime.service';
 import { VoiceService } from './voice/voice.service';
@@ -11,7 +11,7 @@ import { KtvScene } from './ktv-scene';
 
 @Component({
   selector: 'app-room-page',
-  imports: [FormsModule, PlayerPanel],
+  imports: [PlayerPanel, QueuePanel],
   templateUrl: './room.page.html',
   styleUrl: './room.page.scss',
   providers: [RealtimeService, VoiceService], // one connection per visit to a room
@@ -33,10 +33,10 @@ export class RoomPage implements OnInit, OnDestroy {
   protected readonly no3d = signal(false);
   protected readonly count = computed(() => this.rt.members().length);
   protected readonly isSinger = computed(() => this.voice.role() === 'singer');
-  protected readonly askHeadphones = signal(false);
+  /** Headphones dialog: 'sing' = go on stage now, 'prepare' = just queued, ask for the mic early (S-02). */
+  protected readonly askHeadphones = signal<'sing' | 'prepare' | null>(null);
   protected readonly busy = signal(false);
   protected readonly actionError = signal('');
-  protected link = '';
   private noticeTimer?: ReturnType<typeof setTimeout>;
   protected readonly toast = signal('');
 
@@ -71,6 +71,7 @@ export class RoomPage implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     clearInterval(this.micTimer);
+    clearInterval(this.nowTimer);
     this.scene?.dispose();
     clearTimeout(this.noticeTimer);
   }
@@ -80,35 +81,34 @@ export class RoomPage implements OnInit, OnDestroy {
     await this.audio.unlock();
   }
 
-  /** A YouTube link joins the queue with me as the singer; the click track plays at once. */
-  async setSong(link: string) {
-    this.actionError.set('');
-    this.busy.set(true);
-    const isTest = link === TEST_TRACK_LINK;
-    const wasIdle = !this.rt.queue()?.current;
-    const ack = isTest ? await this.rt.setSong(link) : await this.rt.addToQueue(link);
-    this.busy.set(false);
-    if (!ack.ok) {
-      this.actionError.set(ack.error);
-      return;
-    }
-    this.link = '';
-    if (!isTest) this.flash(wasIdle ? 'Đến lượt bạn! Bấm “Bật micro” để hát.' : 'Đã thêm vào danh sách chờ');
+  /** My song was queued. The first time, ask about headphones so the mic can start by itself (S-02). */
+  onQueued({ startedNow }: { startedNow: boolean }) {
+    if (this.voice.headphones() === null) this.askHeadphones.set(startedNow ? 'sing' : 'prepare');
+    else this.flash(startedNow ? 'Đến lượt bạn!' : 'Đã thêm vào danh sách chờ');
   }
 
-  /** Toggle my vote to skip the song playing now (Q-07). */
-  async toggleSkip() {
-    const ack = await this.rt.voteSkip(!this.iVotedSkip());
+  /** Ticks once a second for the singer-away countdown. */
+  private readonly now = signal(Date.now());
+  private nowTimer = setInterval(() => this.now.set(this.rt.serverNow()), 1000);
+  /** R-09: the singer dropped mid-song and nobody has kept it or stepped up yet. */
+  protected readonly singerAway = computed(() => {
+    const cur = this.rt.queue()?.current;
+    if (!cur?.singerAwayUntilMs || cur.kept || this.rt.stage().singerId) return null;
+    return { name: cur.entry.singerName, secs: Math.max(0, Math.ceil((cur.singerAwayUntilMs - this.now()) / 1000)) };
+  });
+  async keepSong() {
+    const ack = await this.rt.keepSong();
     if (!ack.ok) this.actionError.set(ack.error);
   }
-  protected readonly iVotedSkip = computed(() => {
-    const me = this.auth.user()?.displayName;
-    return !!me && !!this.rt.skip()?.voterNames.includes(me);
-  });
-  protected readonly upNext = computed(() =>
-    (this.rt.queue()?.entries ?? []).slice(0, 3).map((e) => `${e.singerName} – ${e.song.title}`),
-  );
-  protected readonly waiting = computed(() => this.rt.queue()?.entries.length ?? 0);
+  async retryMic() {
+    this.busy.set(true);
+    const err = await this.voice.startSinging(this.voice.headphones() ?? 'wired');
+    this.busy.set(false);
+    this.voice.autoArmFailed.set(err ?? '');
+  }
+  ask(mode: 'sing' | 'prepare') {
+    this.askHeadphones.set(mode);
+  }
 
   /** The mic meter is off on iPhone (see VoiceService), so its "silent" hint is too. */
   protected readonly isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -126,8 +126,13 @@ export class RoomPage implements OnInit, OnDestroy {
     this.micLevel.set(level);
     this.micSilentSec.set(level > 2 ? 0 : this.micSilentSec() + 0.2);
   }, 200);
-  playTestTrack() {
-    return this.setSong(TEST_TRACK_LINK);
+  /** The built-in click track plays at once for everyone (no queue). */
+  async playTestTrack() {
+    this.actionError.set('');
+    this.busy.set(true);
+    const ack = await this.rt.setSong(TEST_TRACK_LINK);
+    this.busy.set(false);
+    if (!ack.ok) this.actionError.set(ack.error);
   }
   async togglePause() {
     const ack = this.rt.playback().paused ? await this.rt.resume() : await this.rt.pause();
@@ -135,10 +140,17 @@ export class RoomPage implements OnInit, OnDestroy {
   }
 
   /** S-05: singers say which headphones they use; without any, echo cancellation stays on. */
-  async sing(kind: HeadphoneKind) {
-    this.askHeadphones.set(false);
+  async answer(kind: HeadphoneKind) {
+    const mode = this.askHeadphones();
+    this.askHeadphones.set(null);
     this.busy.set(true);
-    const err = await this.voice.startSinging(kind);
+    // 'prepare' only asks for permission now. If my turn already began meanwhile, sing straight away.
+    const err = mode === 'prepare' && !this.isSinger() ? await this.voice.prepareMic(kind) : await this.voice.startSinging(kind);
+    if (mode === 'prepare' && !err) {
+      this.busy.set(false);
+      this.flash('Xong! Tới lượt bạn, micro sẽ tự bật.');
+      return;
+    }
     this.busy.set(false);
     if (err) this.actionError.set(err);
     else if (kind === 'none') this.flash('Không có tai nghe: nhạc có thể lọt vào micro. Đeo tai nghe có dây sẽ hay hơn.');

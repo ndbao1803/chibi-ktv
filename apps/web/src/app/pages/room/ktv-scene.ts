@@ -28,6 +28,7 @@ interface Chibi {
   spot: number;
   phase: number;
   disposables: { dispose(): void }[];
+  away?: boolean;
 }
 
 const STAGE = new THREE.Vector3(0, 0.3, -3.1);
@@ -85,7 +86,11 @@ export class KtvScene {
     }
     const taken = new Set([...this.chibis.values()].map((c) => c.spot));
     members.forEach((m, i) => {
-      if (this.chibis.has(m.userId)) return;
+      const have = this.chibis.get(m.userId);
+      if (have) {
+        this.dim(have, m.away);
+        return;
+      }
       const spot = SPOTS.findIndex((_, k) => !taken.has(k));
       if (spot < 0) return;
       taken.add(spot);
@@ -93,6 +98,23 @@ export class KtvScene {
       this.scene.add(c.root);
       this.chibis.set(m.userId, c);
       this.place(m.userId, c);
+      this.dim(c, m.away);
+    });
+  }
+
+  /** N-12: someone mid-reconnect is shown see-through until they are back. */
+  private dim(c: Chibi, away: boolean) {
+    if ((c.away ?? false) === away) return;
+    c.away = away;
+    c.root.traverse((o) => {
+      const mat = (o as THREE.Mesh).material;
+      if (!mat || Array.isArray(mat)) return;
+      // Remember each material's own look (name tags are already see-through) and restore it.
+      mat.userData['base'] ??= { transparent: mat.transparent, opacity: mat.opacity };
+      const base = mat.userData['base'] as { transparent: boolean; opacity: number };
+      mat.transparent = away || base.transparent;
+      mat.opacity = away ? base.opacity * 0.35 : base.opacity;
+      mat.needsUpdate = true;
     });
   }
 

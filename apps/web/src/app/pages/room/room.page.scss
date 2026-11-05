@@ -24,6 +24,8 @@
   ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   li { display: flex; align-items: center; gap: 8px; font-weight: 500; flex-wrap: wrap; }
   li.me { color: var(--gold); }
+  li.away { opacity: 0.5; }
+  li.away .dot { background: var(--muted); box-shadow: none; }
   small { color: var(--muted); font-weight: 400; }
   .mic { color: var(--pink); font-size: 12px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); }
@@ -36,9 +38,10 @@
   padding: 12px; display: flex; flex-direction: column; gap: 10px;
 }
 .song { display: flex; gap: 6px; flex-wrap: wrap; }
-.song input {
-  flex: 1 1 200px; min-width: 0; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line);
-  border-radius: 8px; padding: 9px 10px;
+.away-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--gold);
+  padding: 8px 10px; border: 1px solid var(--gold); border-radius: 8px; font-variant-numeric: tabular-nums;
+  button { padding: 6px 12px; }
 }
 .stage { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .live { color: var(--pink); font-weight: 600; }

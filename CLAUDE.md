@@ -26,6 +26,7 @@ pnpm workspaces, TypeScript everywhere.
 - `packages/shared` — Zod schemas, event names, pure helpers (`parseYouTubeId`, `expectedPosition`). Build it first.
 - `apps/server` — NestJS 12, Socket.IO gateway (namespace `/rt`), Drizzle ORM + PostgreSQL, Vitest. Room live state is in memory (`rooms/room-state.ts`); users and rooms are in the DB.
 - `apps/web` — Angular 22 (standalone components, signals, zoneless), Three.js used directly in `pages/room/ktv-scene.ts`, WebRTC in `pages/room/voice/voice.service.ts`, sync loop in `pages/room/player/player-panel.ts`, pure sync rules in `pages/room/sync/sync-math.ts`.
+- Room live state ticks once a second (`RoomLiveService`): away sweep, singer-away deadline, vote-skip, song end, in that order.
 - `e2e/sync.mjs` — T-01 multi-browser sync test with Playwright and a fake mic.
 
 ## Commands
@@ -46,12 +47,14 @@ pnpm test:sync                     # T-01: 1 singer + 2 listeners, fails above 1
 Create the test database once: `docker compose exec db createdb -U ktv ktv_test`.
 Database changes: edit `apps/server/src/db/schema.ts`, then `cd apps/server && pnpm db:generate --name <what>`.
 
-## Status (3 Nov 2026)
+## Status (5 Nov 2026)
 
 - Phase 0 done: accounts, rooms with 6-character codes, 3D room, live presence, clock sync.
-- Phase 1 done in code: synced playback (YouTube + built-in 120 BPM click track), singer mic over WebRTC, listeners follow the singer delayed by the measured voice delay, singer on stage with mouth following the voice. T-01 on one machine: p90 2–17 ms, voice delay ~60 ms.
-- **Not yet done:** pushed to GitHub, deployed to Render/Neon, real test on two laptops on different networks with a real YouTube video.
-- Next: Phase 2 (queue with turns, vote-skip, server-decided song end, reject blocked videos, reconnect keeps seat), then Phase 3 (full 3D room from the prototype, seat changes), Phase 4 (everyone's voice, duet invites), Phase 5 (props, chat, fun moments, rating), Phase 6 (polish, first night).
+- Phase 1 done: synced playback (YouTube + built-in 120 BPM click track), singer mic over WebRTC, listeners follow the singer delayed by the measured voice delay, mouth follows the voice. T-01 on one machine: p90 5–21 ms.
+- Phase 2 done: round-robin queue (`rooms/room-queue.ts`, `orderQueue` in shared), turns put the singer on stage and the mic arms itself, vote-skip (50% of non-singers), server-decided song end (`msUntilSongEnd`), fatal YouTube errors skip, 20 s away grace (`AWAY_GRACE_MS`) with singer-away rule and "Giữ bài" (`turn:keep`). Web queue panel in `pages/room/queue/`.
+- Deployed: GitHub ndbao1803/chibi-ktv (main auto-deploys to Render; Neon Postgres).
+- **Not yet done:** real test on two laptops on different networks with a real YouTube video (checklist in README).
+- Next: Phase 3 (full 3D room from the prototype, seat changes), Phase 4 (everyone's voice, duet invites), Phase 5 (props, chat, fun moments, rating), Phase 6 (polish, first night).
 
 ## Conventions
 

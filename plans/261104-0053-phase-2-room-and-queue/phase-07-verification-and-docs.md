@@ -12,7 +12,7 @@
 ## Overview
 
 - **Priority:** P2 — but nothing is "done" until this passes.
-- **Status:** pending
+- **Status:** done
 - One e2e spec that drives the whole Phase 2 story over real sockets against the Neon test database,
   a T-01 regression run, and the two documents that tell the next person where the project stands.
 
@@ -104,15 +104,15 @@ Modify
 
 ## Todo List
 
-- [ ] `queue.e2e-spec.ts` written and green
-- [ ] Phase 1 singer-disconnect spec updated
-- [ ] `pnpm test` green (shared + server unit + e2e against Neon `ktv_test`)
-- [ ] `pnpm --filter web test --watch=false` green
-- [ ] `pnpm test:sync` PASS, p90 recorded
-- [ ] README: what works now, how the queue works, Phase 3 next, two-laptop checklist
-- [ ] CLAUDE.md status updated
-- [ ] `.env.example` note about `YOUTUBE_API_KEY`
-- [ ] Feature branch + conventional commit
+- [x] `queue.e2e-spec.ts` written and green
+- [x] Phase 1 singer-disconnect spec updated
+- [x] `pnpm test` green (shared + server unit + e2e against Neon `ktv_test`)
+- [x] `pnpm --filter web test --watch=false` green
+- [x] `pnpm test:sync` PASS, p90 recorded
+- [x] README: what works now, how the queue works, Phase 3 next, two-laptop checklist
+- [x] CLAUDE.md status updated
+- [x] `.env.example` note about `YOUTUBE_API_KEY`
+- [x] Feature branch + conventional commit
 
 ## Success Criteria
 

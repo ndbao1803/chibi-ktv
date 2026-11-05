@@ -13,7 +13,7 @@
 ## Overview
 
 - **Priority:** P1
-- **Status:** pending
+- **Status:** done
 - The room gets a "Danh sách bài" panel: paste a link to queue it, see the round-robin order with
   who sings each song, remove your own, and vote to skip what is playing. When your turn starts, your
   chibi walks on stage and your mic arms itself — no second click.
@@ -137,18 +137,18 @@ Modify
 
 ## Todo List
 
-- [ ] `RealtimeService` queue/skip signals + emitters + join ack
-- [ ] `queue-panel` renders current turn, order, singer names, own-entry removal
-- [ ] Server rejection messages shown under the paste box
-- [ ] Vote-skip button with live `have/needed`, hidden for the singer
-- [ ] "Xuống sân khấu" ends the turn; "Lên hát" only when the stage is free
-- [ ] Mic permission asked at queue time (S-02); mic arms itself at turn start (S-01)
-- [ ] Mic failure shows a retry, song keeps playing
-- [ ] Away members greyed in the list and dimmed in 3D
-- [ ] Singer-away banner with countdown, "Giữ bài" and a working "Lên hát" for everyone
-- [ ] Idle-room wording
-- [ ] Duration/error reporting from the player
-- [ ] `pnpm --filter web test --watch=false` green, `pnpm build` green, `pnpm test:sync` PASS
+- [x] `RealtimeService` queue/skip signals + emitters + join ack
+- [x] `queue-panel` renders current turn, order, singer names, own-entry removal
+- [x] Server rejection messages shown under the paste box
+- [x] Vote-skip button with live `have/needed`, hidden for the singer
+- [x] "Xuống sân khấu" ends the turn; "Lên hát" only when the stage is free
+- [x] Mic permission asked at queue time (S-02); mic arms itself at turn start (S-01)
+- [x] Mic failure shows a retry, song keeps playing
+- [x] Away members greyed in the list and dimmed in 3D
+- [x] Singer-away banner with countdown, "Giữ bài" and a working "Lên hát" for everyone
+- [x] Idle-room wording
+- [x] Duration/error reporting from the player
+- [x] `pnpm --filter web test --watch=false` green, `pnpm build` green, `pnpm test:sync` PASS
 
 ## Success Criteria
 

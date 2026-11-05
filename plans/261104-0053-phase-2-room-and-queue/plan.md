@@ -1,7 +1,7 @@
 ---
 title: "Phase 2 — Room and queue (turns, vote-skip, server song end, reconnect)"
 description: "Round-robin song queue with turns, 50% vote-skip, server-decided song end, blocked-video rejection, and reconnect that keeps your seat."
-status: pending
+status: done
 priority: P1
 effort: 16h
 branch: main
@@ -27,8 +27,8 @@ Version 1 has **no host**: Q-07 is a Must, members remove only their own entries
 | 03 | [phase-03-vote-skip.md](phase-03-vote-skip.md) | 50% of non-singers skip the current song | 1.5h | done |
 | 04 | [phase-04-song-end-and-blocked-videos.md](phase-04-song-end-and-blocked-videos.md) | Y-11 server song end, duration reporting, Y-08 auto-skip, Y-12 on add | 2.5h | done |
 | 05 | [phase-05-reconnect-and-singer-disconnect.md](phase-05-reconnect-and-singer-disconnect.md) | 20 s away grace keeps seat/queue; singer-away rule + "Giữ bài" | 2.5h | done |
-| 06 | [phase-06-web-queue-ui-and-auto-stage.md](phase-06-web-queue-ui-and-auto-stage.md) | Angular queue panel, skip button, auto mic on your turn | 3h | pending |
-| 07 | [phase-07-verification-and-docs.md](phase-07-verification-and-docs.md) | e2e specs, T-01 regression, README/CLAUDE.md | 1h | pending |
+| 06 | [phase-06-web-queue-ui-and-auto-stage.md](phase-06-web-queue-ui-and-auto-stage.md) | Angular queue panel, skip button, auto mic on your turn | 3h | done |
+| 07 | [phase-07-verification-and-docs.md](phase-07-verification-and-docs.md) | e2e specs, T-01 regression, README/CLAUDE.md | 1h | done |
 
 Run in order: 01 → 02 → (03, 04 in parallel) → 05 → 06 → 07.
 

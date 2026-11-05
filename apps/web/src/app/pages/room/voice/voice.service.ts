@@ -119,6 +119,11 @@ export class VoiceService implements OnDestroy {
   readonly singerLagSec = signal(0);
   /** Listener: my fine-tune (ms, positive = music later), remembered in this browser. */
   readonly manualOffsetMs = signal(readOffset());
+  /** The headphones answer, asked once per visit and reused when my turn starts by itself. */
+  readonly headphones = signal<HeadphoneKind | null>(null);
+  /** Singer: the automatic mic start at my turn failed; the page shows a retry button. */
+  readonly autoArmFailed = signal('');
+  private arming = false;
 
   constructor() {
     this.rt.onSignal = (m) => void this.onSignal(m);
@@ -127,10 +132,47 @@ export class VoiceService implements OnDestroy {
       const members = this.rt.members();
       untracked(() => void this.reconcile(stage, members));
     });
+    // S-01/S-02: when my turn puts me on stage, switch my mic on without a second click,
+    // as long as I already answered the headphones question (at queue time or earlier).
+    effect(() => {
+      const singer = this.role() === 'singer';
+      const kind = this.headphones();
+      untracked(() => {
+        if (!singer) this.autoArmFailed.set('');
+        // Only the visible tab arms the mic, so two open tabs do not both grab it.
+        if (!singer || this.micOn() || kind === null || this.arming || document.visibilityState !== 'visible') return;
+        void this.arm(kind);
+      });
+    });
+  }
+
+  private async arm(kind: HeadphoneKind) {
+    this.arming = true;
+    const err = await this.startSinging(kind);
+    this.arming = false;
+    this.autoArmFailed.set(err ?? '');
+  }
+
+  /**
+   * S-02: ask for mic permission at queue time (the click is right there), then let go of the mic.
+   * Later, when the turn starts with no click, the browser opens it without asking again.
+   */
+  async prepareMic(kind: HeadphoneKind): Promise<string | null> {
+    this.headphones.set(kind);
+    if (this.micOn() || !navigator.mediaDevices?.getUserMedia) return null;
+    try {
+      const s = await openMic(kind !== 'none');
+      s.getTracks().forEach((t) => t.stop());
+      return null;
+    } catch (e) {
+      return micErrorText(e);
+    }
   }
 
   /** Go on stage: ask for the mic first, then claim the stage (S-02, S-05). */
   async startSinging(kind: HeadphoneKind): Promise<string | null> {
+    this.headphones.set(kind);
+    if (this.micOn()) return null;
     const headphones = kind !== 'none';
     if (!navigator.mediaDevices?.getUserMedia) {
       return 'Trình duyệt này không mở được micro. Hãy mở link https bằng Safari (iPhone) hoặc Chrome.';

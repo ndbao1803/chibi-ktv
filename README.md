@@ -2,7 +2,7 @@
 
 A 3D karaoke room for friends: chibi avatars on a neon KTV sofa, a synced YouTube video, one or two singers on stage, and everyone else cheering. Free to run.
 
-This repository covers **Phase 0 and Phase 1** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, and the hard part: everyone hears the song in step, and listeners hear the singer on the beat. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
+This repository covers **Phases 0–2** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, the hard part (everyone hears the song in step, and listeners hear the singer on the beat), and a real song queue with turns. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
 
 ## What works now
 
@@ -14,11 +14,20 @@ This repository covers **Phase 0 and Phase 1** of the [build plan](https://claud
 
 **Phase 1 (sync):**
 
-- Paste a YouTube link and press **Phát**: it plays for everyone, starting at the same moment. Anyone can pause or resume, and a message says who did it (version 1 has no host).
+- A YouTube song plays for everyone, starting at the same moment. Anyone can pause or resume, and a message says who did it (version 1 has no host).
 - **Nhạc thử nhịp** plays a built-in 120 BPM click track. Open the room on two laptops side by side: the clicks must sound together. No YouTube needed.
 - **🎤 Lên hát**: confirm headphones, allow the mic, and your chibi walks onto the stage. Your voice goes straight to each friend's browser (peer-to-peer WebRTC, free).
 - Listeners' music follows the singer, delayed by exactly as long as the voice takes to arrive, so voice and music line up. The video panel shows **Theo ca sĩ ±N ms** while following.
 - The singer's chibi mouth moves with the real voice.
+
+**Phase 2 (room and queue):**
+
+- **Danh sách bài:** paste a YouTube link and press **Thêm bài**. You are the singer of every song you add. The panel shows the song playing now with the time left, then who sings next.
+- **Turns are fair (round-robin):** someone who has sung less goes first, so one person can't hog the mic. Up to 5 songs each, 50 per room. Remove your own songs with ✕.
+- **Your turn starts by itself:** your chibi goes on stage and your mic switches on with no extra click. The first time you add a song, it asks which headphones you use and asks the browser for mic permission right then.
+- **Bỏ qua bài này:** a song is skipped when half of the listeners vote (the singer can't vote; they press **Xuống sân khấu**).
+- **The server ends songs:** it knows each video's length (from YouTube's data API, or reported by the first player that loads it), so every browser moves on at the same moment. Videos that can't play (removed, embed blocked) are skipped for everyone with a message.
+- **Dropped connections:** if you lose the connection, you keep your place, your songs and your vote for 20 seconds. Others see you greyed out "(mất kết nối)". If the singer drops, the music keeps going and everyone sees "… bài sẽ dừng sau 20 giây": anyone can press **Giữ bài** to finish the song, or **🎤 Lên hát** to sing it. If the singer comes back in time, they get the stage back.
 
 ## Tech stack, and what each piece teaches you
 
@@ -124,8 +133,16 @@ apps/web/             Angular
 
 Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length, embeddable, blocked in Vietnam), and `CF_TURN_KEY_ID` + `CF_TURN_KEY_TOKEN` (Cloudflare's free TURN relay, for friends behind strict networks). Without them, any valid link plays and free STUN servers are used.
 
-## Next: Phase 2 (room and queue)
+## Try it on two laptops (checklist)
 
-- Song queue with turns, vote-skip, server-decided song end
-- Rejecting blocked videos when pasted, auto-skip on player errors
-- Reconnect keeps your seat; singer disconnect rule
+1. Laptop A creates a room, laptop B opens the invite link (different networks if you can, e.g. one on 4G hotspot).
+2. A adds two songs, B adds one: both see A1, B1, A2.
+3. A's song starts by itself, A's mic switches on, B hears A on the beat (B's video says "Theo ca sĩ").
+4. B presses **Bỏ qua bài này** → B's song starts, B's mic switches on.
+5. B refreshes the page mid-song → A sees "Bình mất kết nối…", B comes back on stage within a few seconds.
+
+## Next: Phase 3 (the full 3D room)
+
+- The room from the design prototype: neon walls, U-sofa, stage, lights, decorations
+- Pick a seat by walking your chibi to it; the server keeps seats fair
+- Camera presets, and staying smooth on phones

@@ -1,4 +1,25 @@
-# Progress — 4 Nov 2026
+# Progress — 5 Nov 2026
+
+## Update: Phase 2 complete (steps 04–07)
+- **04 song end + broken videos:** the server ends each song at its length + 2 s; the length comes
+  from the YouTube API or the first player (`play:duration`); fatal player errors (`play:error`
+  2/100/101/150) skip for everyone.
+- **05 reconnect:** a closed tab is "away" for 20 s (`AWAY_GRACE_MS`), keeping seat, songs and
+  vote. A dropped singer frees the stage but not the music; the song stops after 20 s unless
+  someone presses "Giữ bài" (`turn:keep`) or steps on stage. Back in time = stage back if free.
+- **06 web:** `pages/room/queue/` panel (now playing + time left, round-robin list, ✕ on your
+  own, vote-skip with have/needed), mic permission asked when you first queue a song, mic arms
+  itself at your turn (retry button if it fails), away people greyed in the list and see-through
+  in 3D, singer-away banner with countdown.
+- **07:** `test/queue.e2e-spec.ts` (three friends, order, remove-own, singer drop + return,
+  queue broadcasts < 200 ms), docs updated.
+- Tests: server unit 42, server e2e 27, web 16 — green. T-01 PASS (worst listener p90 14.7 ms).
+  Browser run with a stand-in YouTube player (the sandbox can't reach YouTube): A1/B1/A2 order,
+  skip → B's mic on with no click, B drops → A sees the banner, "Giữ bài" works.
+- Still to do by hand: the two-laptop checklist in the README with a real YouTube video.
+- Next: Phase 3 (full 3D room from the prototype).
+
+---
 
 ## Update: phase 03 (vote-skip) done
 - `skip:vote { vote }` toggles your vote on the song playing now; half of the non-singers
