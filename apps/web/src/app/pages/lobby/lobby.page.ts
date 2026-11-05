@@ -1,3 +1,6 @@
+import { TranslatePipe } from '../../core/i18n';
+import { LangSwitch } from '../../core/lang-switch';
+import { RouterLink } from '@angular/router';
 import { Component, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
@@ -9,7 +12,7 @@ import { apiError } from '../../core/api-error';
 
 @Component({
   selector: 'app-lobby-page',
-  imports: [FormsModule],
+  imports: [FormsModule, TranslatePipe, LangSwitch, RouterLink],
   templateUrl: './lobby.page.html',
   styleUrl: './lobby.page.scss',
 })

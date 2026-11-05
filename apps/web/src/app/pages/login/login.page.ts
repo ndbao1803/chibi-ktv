@@ -1,3 +1,6 @@
+import { TranslatePipe } from '../../core/i18n';
+import { LangSwitch } from '../../core/lang-switch';
+import { RouterLink } from '@angular/router';
 import { Component, inject, input, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -9,7 +12,7 @@ type Mode = 'login' | 'register';
 
 @Component({
   selector: 'app-login-page',
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, TranslatePipe, LangSwitch, RouterLink],
   templateUrl: './login.page.html',
   styleUrl: './login.page.scss',
 })

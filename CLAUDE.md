@@ -49,7 +49,7 @@ pnpm test:party                    # Phase 5: chat, props, cụng ly, rating acr
 Create the test database once: `docker compose exec db createdb -U ktv ktv_test`.
 Database changes: edit `apps/server/src/db/schema.ts`, then `cd apps/server && pnpm db:generate --name <what>`.
 
-## Status (5 Nov 2026)
+## Status (5 Nov 2026 — all phases built)
 
 - Phase 0 done: accounts, rooms with 6-character codes, 3D room, live presence, clock sync.
 - Phase 1 done: synced playback (YouTube + built-in 120 BPM click track), singer mic over WebRTC, listeners follow the singer delayed by the measured voice delay, mouth follows the voice. T-01 on one machine: p90 5–21 ms.
@@ -57,12 +57,15 @@ Database changes: edit `apps/server/src/db/schema.ts`, then `cd apps/server && p
 - Phase 3 done: room ported from the prototype into `pages/room/scene/` (`room-decor.ts`, `chibi.ts`, `seats.ts` with walking routes + tests, `kit.ts` helpers); `ktv-scene.ts` orchestrates. Server seats (`seat:take`, `firstFreeSeat`, `SEAT_FILL_ORDER` in shared), camera presets, low-power mode (RD-05) with automatic fallback.
 - Phase 4 done: talk mesh in `pages/room/voice/talk.service.ts` (one connection per pair, smaller id offers, mics swapped with replaceTrack; signals carry `ch: 'talk'`), mixing rules in `TalkService.gainFor`, PTT/open mic (`mic:mode`, max 8 open), cheers via `fx:send`/`fx`, duet invites (`duet:invite|answer|cancel`, `invites:set`), `StageState.partnerId/partnerName`; partner sings over the talk lines. `pnpm test:voice` = 3-browser check.
 - Phase 5 done: `rooms/room-party.ts` (shakers, hype, dance, fx cooldowns, chat history, rating window, leaderboard), `rooms/profanity.ts`; events `prop:set`, `shake:set`, `party:state` (batched ≤8/s), `chat:send|msg`, `rating:state`, `rate:send`, `score`, `leaderboard`; web components `chat/`, `party/`, `score/`; scene: props, dance, flowers, fart cloud, bubbles, confetti. `pnpm test:party` = 3-browser check. Note: forms use signals (`[ngModel]`+`(ngModelChange)`), because zoneless Angular does not re-render for plain fields.
+- Phase 6 done: offline banner (socket + browser `offline` event), wake-up screen in `index.html`, phone portrait "remote" mode (`:host(.remote)`, no 3D), VI/EN via `core/i18n.ts` (`| t` pipe keyed by the Vietnamese text, `LangSwitch`), client errors → `POST /api/client-errors` → server log (O-01 without Sentry), `/privacy` page (P-07).
 - Deployed: GitHub ndbao1803/chibi-ktv (main auto-deploys to Render; Neon Postgres).
 - **Not yet done:** real test on two laptops on different networks with a real YouTube video (checklist in README).
-- Next: Phase 6 (polish, first night).
+- All 7 phases are built. Next: the first karaoke night with friends (checklist in README), then host features (polish, first night).
 
 ## Conventions
 
+- New interface text: write it in Vietnamese, wrap it in `{{ '…' | t }}` and add the English to `core/i18n.ts`.
+- Form inputs: use signals with `[ngModel]` + `(ngModelChange)` and handle Enter with `(keydown.enter)` (zoneless Angular).
 - Validate every socket/HTTP input with the shared Zod schema; return `{ ok: false, error }` acks with a Vietnamese message.
 - Keep sync logic in pure functions with unit tests.
 - Server tests run against a real PostgreSQL, not mocks.

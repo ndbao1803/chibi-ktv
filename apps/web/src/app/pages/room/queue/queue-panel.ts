@@ -1,3 +1,4 @@
+import { TranslatePipe } from '../../../core/i18n';
 import { Component, computed, inject, OnDestroy, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { QueueEntry } from '@ktv/shared';
@@ -17,7 +18,7 @@ export function formatLeft(ms: number): string {
  */
 @Component({
   selector: 'app-queue-panel',
-  imports: [FormsModule],
+  imports: [FormsModule, TranslatePipe],
   templateUrl: './queue-panel.html',
   styleUrl: './queue-panel.scss',
 })

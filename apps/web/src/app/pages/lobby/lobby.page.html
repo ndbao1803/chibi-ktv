@@ -2,35 +2,37 @@
   <header class="top">
     <div class="logo">CHIBI <span>KTV</span></div>
     <div class="me">
-      <span>Xin chào, <b>{{ auth.user()?.displayName }}</b></span>
-      <button class="btn-ghost" (click)="logout()">Đăng xuất</button>
+      <span>{{ 'Xin chào,' | t }} <b>{{ auth.user()?.displayName }}</b></span>
+      <app-lang-switch />
+      <button class="btn-ghost" (click)="logout()">{{ 'Đăng xuất' | t }}</button>
     </div>
   </header>
 
   <div class="grid">
     <section class="panel box">
-      <h2>Tạo phòng mới</h2>
+      <h2>{{ 'Tạo phòng mới' | t }}</h2>
       <div class="field">
-        <label for="roomName">Tên phòng</label>
+        <label for="roomName">{{ 'Tên phòng' | t }}</label>
         <input id="roomName" [(ngModel)]="roomName" maxlength="40" />
       </div>
       <fieldset class="cap">
-        <legend>Số ghế</legend>
-        <label><input type="radio" name="cap" [value]="8" [(ngModel)]="capacity" /> 8 người</label>
-        <label><input type="radio" name="cap" [value]="16" [(ngModel)]="capacity" /> 16 người</label>
+        <legend>{{ 'Số ghế' | t }}</legend>
+        <label><input type="radio" name="cap" [value]="8" [(ngModel)]="capacity" /> {{ '8 người' | t }}</label>
+        <label><input type="radio" name="cap" [value]="16" [(ngModel)]="capacity" /> {{ '16 người' | t }}</label>
       </fieldset>
-      <button class="btn-pink" (click)="create()" [disabled]="busy()">Tạo phòng</button>
+      <button class="btn-pink" (click)="create()" [disabled]="busy()">{{ 'Tạo phòng' | t }}</button>
     </section>
 
     <section class="panel box">
-      <h2>Vào phòng bạn bè</h2>
+      <h2>{{ 'Vào phòng bạn bè' | t }}</h2>
       <div class="field">
-        <label for="code">Mã phòng (6 ký tự)</label>
-        <input id="code" [(ngModel)]="code" maxlength="6" placeholder="VD: K7M2QX" (keyup.enter)="join()" />
+        <label for="code">{{ 'Mã phòng (6 ký tự)' | t }}</label>
+        <input id="code" [(ngModel)]="code" maxlength="6" [placeholder]="'VD: K7M2QX' | t" (keyup.enter)="join()" />
       </div>
-      <button class="btn-main" (click)="join()">Vào phòng</button>
+      <button class="btn-main" (click)="join()">{{ 'Vào phòng' | t }}</button>
     </section>
   </div>
 
   @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  <p class="foot"><a routerLink="/privacy">{{ 'Quyền riêng tư' | t }}</a></p>
 </main>

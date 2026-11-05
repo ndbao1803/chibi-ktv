@@ -1,12 +1,12 @@
-<section class="panel chat" [class.closed]="!showing()" aria-label="Trò chuyện">
+<section class="panel chat" [class.closed]="!showing()" [attr.aria-label]="'Trò chuyện' | t">
   <button class="head" (click)="toggle()" [attr.aria-expanded]="showing()">
-    <span>💬 Trò chuyện</span>
-    @if (unread() > 0) { <b class="badge" aria-label="tin chưa đọc">{{ unread() }}</b> }
+    <span>{{ '💬 Trò chuyện' | t }}</span>
+    @if (unread() > 0) { <b class="badge" [attr.aria-label]="'tin chưa đọc' | t">{{ unread() }}</b> }
     <i aria-hidden="true">{{ showing() ? '▾' : '▸' }}</i>
   </button>
 
   @if (singing() && open()) {
-    <p class="hint">Bạn đang hát — đọc tin nhắn sau nhé 🎤</p>
+    <p class="hint">{{ 'Bạn đang hát — đọc tin nhắn sau nhé 🎤' | t }}</p>
   }
 
   @if (showing()) {
@@ -22,11 +22,11 @@
           }
           {{ ' ' }}<time>{{ time(l.msg.atMs) }}</time>
           @if (l.link) {
-            <button class="queue" (click)="queueLink(l.link)">＋ Thêm vào hàng chờ</button>
+            <button class="queue" (click)="queueLink(l.link)">{{ '＋ Thêm vào hàng chờ' | t }}</button>
           }
         </li>
       } @empty {
-        <li class="system">Chưa có tin nhắn. Chào cả phòng đi!</li>
+        <li class="system">{{ 'Chưa có tin nhắn. Chào cả phòng đi!' | t }}</li>
       }
     </ol>
 
@@ -35,10 +35,10 @@
       @for (e of emoji; track e) { <button class="e" (click)="addEmoji(e)" [attr.aria-label]="'Thêm ' + e">{{ e }}</button> }
     </div>
     <form (ngSubmit)="send()">
-      <label for="chat-in" class="sr">Tin nhắn</label>
-      <input id="chat-in" name="chat" [ngModel]="text()" (ngModelChange)="text.set($event)" [maxlength]="max" autocomplete="off"
-             placeholder="Nhắn cả phòng… (@tên, /me, /hat link, /skip)" />
-      <button class="btn-main" type="submit" [disabled]="!text().trim()">Gửi</button>
+      <label for="chat-in" class="sr">{{ 'Tin nhắn' | t }}</label>
+      <input id="chat-in" name="chat" [ngModel]="text()" (ngModelChange)="text.set($event)" (keydown.enter)="$event.preventDefault(); send($any($event.target).value)" [maxlength]="max" autocomplete="off"
+             [placeholder]="'Nhắn cả phòng… (@tên, /me, /hat link, /skip)' | t" />
+      <button class="btn-main" type="submit" [disabled]="!text().trim()">{{ 'Gửi' | t }}</button>
     </form>
     @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
   }

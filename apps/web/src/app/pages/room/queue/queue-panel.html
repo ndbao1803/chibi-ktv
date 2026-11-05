@@ -1,9 +1,9 @@
-<section class="panel queue" aria-label="Danh sách bài">
-  <h2>Danh sách bài</h2>
+<section class="panel queue" [attr.aria-label]="'Danh sách bài' | t">
+  <h2>{{ 'Danh sách bài' | t }}</h2>
 
   @if (current(); as c) {
     <div class="now">
-      <span class="tag">Đang phát</span>
+      <span class="tag">{{ 'Đang phát' | t }}</span>
       <b class="title">{{ c.entry.song.title }}</b>
       <span class="who">
         🎤 {{ c.entry.singerName }}@if (c.entry.partnerName) { &amp; {{ c.entry.partnerName }} · song ca }@if (c.entry.singerId === meId()) { <small>(bạn)</small> }
@@ -12,12 +12,12 @@
       @if (canSkip() && rt.skip(); as s) {
         <button type="button" class="btn-ghost skip" [class.voted]="iVoted()" (click)="toggleSkip()"
                 [attr.aria-pressed]="iVoted()" [title]="s.voterNames.length ? 'Đã bầu: ' + s.voterNames.join(', ') : 'Chưa ai bầu'">
-          ⏭ {{ iVoted() ? 'Rút phiếu bỏ qua' : 'Bỏ qua bài này' }} ({{ s.have }}/{{ s.needed }})
+          ⏭ {{ (iVoted() ? 'Rút phiếu bỏ qua' : 'Bỏ qua bài này') | t }} ({{ s.have }}/{{ s.needed }})
         </button>
       }
     </div>
   } @else {
-    <p class="idle">Chưa có bài — dán link YouTube để thêm vào danh sách.</p>
+    <p class="idle">{{ 'Chưa có bài — dán link YouTube để thêm vào danh sách.' | t }}</p>
   }
 
   @if (entries().length) {
@@ -33,7 +33,7 @@
             </small>
           </span>
           @if (e.invite && e.singerId === meId()) {
-            <button type="button" class="undo" (click)="cancelInvite(e)">Huỷ mời</button>
+            <button type="button" class="undo" (click)="cancelInvite(e)">{{ 'Huỷ mời' | t }}</button>
           }
           @if (e.singerId === meId()) {
             <button type="button" class="x" (click)="remove(e)" [attr.aria-label]="'Bỏ bài ' + e.song.title">✕</button>
@@ -45,21 +45,21 @@
 
   <form class="add" (ngSubmit)="add()">
     <div class="line">
-      <label for="qlink" class="sr">Link YouTube</label>
-      <input id="qlink" name="qlink" [ngModel]="link()" (ngModelChange)="link.set($event)" placeholder="Dán link YouTube karaoke…" autocomplete="off" />
-      <button class="btn-main" type="submit" [disabled]="busy() || !link().trim()">Thêm bài</button>
+      <label for="qlink" class="sr">{{ 'Link YouTube' | t }}</label>
+      <input id="qlink" name="qlink" [ngModel]="link()" (ngModelChange)="link.set($event)" (keydown.enter)="$event.preventDefault(); link.set($any($event.target).value); add()" [placeholder]="'Dán link YouTube karaoke…' | t" autocomplete="off" />
+      <button class="btn-main" type="submit" [disabled]="busy() || !link().trim()">{{ 'Thêm bài' | t }}</button>
     </div>
-    <div class="line who" role="radiogroup" aria-label="Ai hát">
-      <label><input type="radio" name="who" value="solo" [ngModel]="who()" (ngModelChange)="who.set($event)" /> Hát một mình</label>
-      <label><input type="radio" name="who" value="duet" [ngModel]="who()" (ngModelChange)="who.set($event)" [disabled]="!invitable().length" /> Mời song ca</label>
+    <div class="line who" role="radiogroup" [attr.aria-label]="'Ai hát' | t">
+      <label><input type="radio" name="who" value="solo" [ngModel]="who()" (ngModelChange)="who.set($event)" /> {{ 'Hát một mình' | t }}</label>
+      <label><input type="radio" name="who" value="duet" [ngModel]="who()" (ngModelChange)="who.set($event)" [disabled]="!invitable().length" /> {{ 'Mời song ca' | t }}</label>
       @if (who() === 'duet') {
-        <select name="partner" [ngModel]="partnerId()" (ngModelChange)="partnerId.set($event)" aria-label="Mời ai">
-          <option value="">Chọn người…</option>
+        <select name="partner" [ngModel]="partnerId()" (ngModelChange)="partnerId.set($event)" [attr.aria-label]="'Mời ai' | t">
+          <option value="">{{ 'Chọn người…' | t }}</option>
           @for (m of invitable(); track m.userId) { <option [value]="m.userId">{{ m.displayName }}</option> }
         </select>
       }
     </div>
   </form>
-  <label class="optout"><input type="checkbox" [checked]="!myInvitesOpen()" (change)="setInvites(!$any($event.target).checked)" /> Không nhận lời mời song ca</label>
+  <label class="optout"><input type="checkbox" [checked]="!myInvitesOpen()" (change)="setInvites(!$any($event.target).checked)" /> {{ 'Không nhận lời mời song ca' | t }}</label>
   @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
 </section>

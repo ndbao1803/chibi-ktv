@@ -1,3 +1,4 @@
+import { TranslatePipe } from '../../../core/i18n';
 import { Component, computed, inject, input, OnDestroy, output, signal } from '@angular/core';
 import { PROPS, REACTIONS, type FxKind, type Prop } from '@ktv/shared';
 import { AuthService } from '../../../core/auth.service';
@@ -13,6 +14,7 @@ type MotionPermission = { requestPermission?: () => Promise<'granted' | 'denied'
  */
 @Component({
   selector: 'app-party-bar',
+  imports: [TranslatePipe],
   templateUrl: './party-bar.html',
   styleUrl: './party-bar.scss',
 })

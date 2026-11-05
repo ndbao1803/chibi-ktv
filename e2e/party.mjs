@@ -46,6 +46,7 @@ const { An: a, Binh: b, Chi: c } = P;
 await a.waitForTimeout(2000);
 const chatText = async (p) => (await p.locator('app-chat-panel .list').innerText()).replace(/\s+/g, ' ');
 /** Waits up to 5 s for some text to appear in a page's chat. */
+const toastHas = (p, text) => p.locator('.toast', { hasText: text }).waitFor({ timeout: 4000 }).then(() => true, () => false);
 const chatHas = (p, text) => p.locator('app-chat-panel .list li', { hasText: text }).first().waitFor({ timeout: 5000 }).then(() => true, () => false);
 
 // Chat (CH-01..CH-04): joins in the stream, messages, filter, /me.
@@ -78,13 +79,12 @@ check(/^[123]$/.test(await b.locator('.cung').innerText().catch(() => '')), 'c�
 await b.waitForTimeout(2300);
 check((await b.locator('.cung').innerText().catch(() => '')) === 'DÔ!', '… and ends with "DÔ!" together');
 await b.getByRole('button', { name: /Cụng ly/ }).click();
-check((await b.locator('.toast').innerText().catch(() => '')).includes('Vừa cụng ly'), 'only one cụng ly per minute per room');
+check(await toastHas(b, 'Vừa cụng ly'), 'only one cụng ly per minute per room');
 check(await b.getByRole('button', { name: /Tặng hoa/ }).isDisabled(), 'no flowers while nobody is on stage');
-await c.getByRole('button', { name: /Xì hơi/ }).click();
-await c.waitForTimeout(300);
-await c.getByRole('button', { name: /Xì hơi/ }).click();
-await c.waitForTimeout(300);
-check((await c.locator('.toast').innerText().catch(() => '')).includes('2 phút'), 'the prank has a 2-minute cooldown');
+await c.getByRole('button', { name: /Xì hơi/ }).click(); // the first one goes through
+await c.waitForTimeout(400);
+await c.getByRole('button', { name: /Xì hơi/ }).click(); // the second is too soon
+check(await toastHas(c, '2 phút'), 'the prank has a 2-minute cooldown');
 if (SHOTS) await a.screenshot({ path: `${SHOTS}/party-1.png` });
 
 // Rating (G-01..G-06): An sings, Binh throws a flower, An steps down (skip), Binh and Chi rate.

@@ -1,3 +1,4 @@
+import { TranslatePipe } from '../../../core/i18n';
 import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, untracked, viewChild } from '@angular/core';
 import { expectedPosition, type PlaybackState, type SongRef } from '@ktv/shared';
 import { RealtimeService } from '../realtime.service';
@@ -34,6 +35,7 @@ const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 
  */
 @Component({
   selector: 'app-player-panel',
+  imports: [TranslatePipe],
   templateUrl: './player-panel.html',
   styleUrl: './player-panel.scss',
 })

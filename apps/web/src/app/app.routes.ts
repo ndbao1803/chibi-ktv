@@ -7,5 +7,6 @@ export const routes: Routes = [
   { path: 'lobby', canActivate: [authGuard], loadComponent: () => import('./pages/lobby/lobby.page').then((m) => m.LobbyPage) },
   // The 3D room is lazy-loaded so Three.js only downloads when you enter a room.
   { path: 'room/:code', canActivate: [authGuard], loadComponent: () => import('./pages/room/room.page').then((m) => m.RoomPage) },
+  { path: 'privacy', loadComponent: () => import('./pages/privacy/privacy.page').then((m) => m.PrivacyPage) },
   { path: '**', redirectTo: 'lobby' },
 ];

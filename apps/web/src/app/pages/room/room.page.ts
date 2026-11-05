@@ -1,3 +1,5 @@
+import { TranslatePipe } from '../../core/i18n';
+import { LangSwitch } from '../../core/lang-switch';
 import { Component, computed, effect, ElementRef, inject, input, OnDestroy, OnInit, signal, untracked, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { TEST_TRACK_LINK, type FxEvent, type HeadphoneKind } from '@ktv/shared';
@@ -28,10 +30,11 @@ function readLowPower(): boolean {
 
 @Component({
   selector: 'app-room-page',
-  imports: [PlayerPanel, QueuePanel, ChatPanel, PartyBar, ScoreOverlay],
+  imports: [PlayerPanel, QueuePanel, ChatPanel, PartyBar, ScoreOverlay, TranslatePipe, LangSwitch],
   templateUrl: './room.page.html',
   styleUrl: './room.page.scss',
   providers: [RealtimeService, VoiceService, TalkService], // one connection per visit to a room
+  host: { '[class.remote]': 'remote' },
 })
 export class RoomPage implements OnInit, OnDestroy {
   protected readonly auth = inject(AuthService);
@@ -49,6 +52,14 @@ export class RoomPage implements OnInit, OnDestroy {
   protected readonly copied = signal(false);
   /** The browser could not run the 3D room; everything else still works. */
   protected readonly no3d = signal(false);
+  /** N-07: phones held upright get the "remote" view: no 3D, the panels stacked to scroll. */
+  protected readonly remote = matchMedia('(max-width: 600px) and (orientation: portrait)').matches;
+  /** E-01: lost the connection for more than 2 s (a blip is not worth a banner). */
+  protected readonly offline = signal(false);
+  private offlineTimer?: ReturnType<typeof setTimeout>;
+  /** The browser knows about a lost network at once; the socket only after its ping times out. */
+  private readonly netDown = () => this.offline.set(true);
+  private readonly netUp = () => this.offline.set(!this.rt.connected());
   protected readonly count = computed(() => this.rt.members().length);
   protected readonly isSinger = computed(() => this.voice.role() === 'singer');
   /** Headphones dialog: 'sing' = go on stage now, 'prepare' = just queued, ask for the mic early (S-02). */
@@ -67,6 +78,14 @@ export class RoomPage implements OnInit, OnDestroy {
     effect(() => this.flash(this.rt.notice()));
     effect(() => this.flash(this.voice.error()));
     effect(() => this.flash(this.talk.error()));
+    effect(() => {
+      const up = this.rt.connected();
+      untracked(() => {
+        clearTimeout(this.offlineTimer);
+        if (up) this.offline.set(false);
+        else this.offlineTimer = setTimeout(() => this.offline.set(true), 2000);
+      });
+    });
     // S-12: as the duet partner, my singing mic switches on by itself if I already answered about headphones.
     effect(() => {
       const partner = this.talk.iAmPartner(), kind = this.voice.headphones();
@@ -94,10 +113,12 @@ export class RoomPage implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    window.addEventListener('offline', this.netDown);
+    window.addEventListener('online', this.netUp);
     // Join first: the room (music, voice, queue) must work even if 3D does not.
     void this.rt.join(this.code().toUpperCase());
     // ?lite=1 skips the 3D room (slow phones, and the multi-browser sync test).
-    if (new URLSearchParams(location.search).has('lite')) return;
+    if (new URLSearchParams(location.search).has('lite') || this.remote) return;
     try {
       this.scene = new KtvScene(this.canvas().nativeElement);
       this.scene.levelOf = (id) =>
@@ -127,6 +148,8 @@ export class RoomPage implements OnInit, OnDestroy {
     clearInterval(this.nowTimer);
     clearInterval(this.speakTimer);
     clearInterval(this.shakeTimer);
+    window.removeEventListener('offline', this.netDown);
+    window.removeEventListener('online', this.netUp);
     clearInterval(this.cungTimer);
     this.scene?.dispose();
     clearTimeout(this.noticeTimer);

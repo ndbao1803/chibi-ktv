@@ -1,19 +1,19 @@
-<canvas #scene class="scene" aria-label="Phòng karaoke 3D với các nhân vật chibi"></canvas>
+<canvas #scene class="scene" [attr.aria-label]="'Phòng karaoke 3D với các nhân vật chibi' | t"></canvas>
 
 <aside class="hud side">
   <app-player-panel />
   <app-queue-panel (added)="onQueued($event)" />
-  <section class="panel members" aria-label="Đang online">
+  <section class="panel members" [attr.aria-label]="'Đang online' | t">
     <h2>Đang online · {{ count() }}/{{ rt.room()?.capacity ?? 8 }}</h2>
     <ul>
       @for (m of rt.members(); track m.userId) {
         <li [class.me]="m.userId === auth.user()?.id" [class.away]="m.away" [class.talking]="speaking().has(m.userId)">
           <i class="dot"></i>{{ m.displayName }}
           @if (m.away) { <small>(mất kết nối)</small> }
-          @if (m.userId === rt.stage().singerId) { <span class="mic">🎤 đang hát</span> }
-          @if (m.userId === rt.stage().partnerId) { <span class="mic">🎤 song ca</span> }
-          @if (speaking().has(m.userId)) { <span class="said" aria-label="đang nói">🗣️</span> }
-          @else if (m.mic === 'open') { <span class="open" title="Mic mở">🎙️</span> }
+          @if (m.userId === rt.stage().singerId) { <span class="mic">{{ '🎤 đang hát' | t }}</span> }
+          @if (m.userId === rt.stage().partnerId) { <span class="mic">{{ '🎤 song ca' | t }}</span> }
+          @if (speaking().has(m.userId)) { <span class="said" [attr.aria-label]="'đang nói' | t">🗣️</span> }
+          @else if (m.mic === 'open') { <span class="open" [title]="'Mic mở' | t">🎙️</span> }
           @if (m.userId === auth.user()?.id) { <small>(bạn)</small> }
           @else {
             <button class="mute" (click)="talk.toggleMute(m.userId)" [attr.aria-pressed]="talk.muted().has(m.userId)"
@@ -35,19 +35,20 @@
     <b class="code">{{ code().toUpperCase() }}</b>
   </div>
   <div class="row">
-    <button class="btn-ghost small" (click)="copyLink()">{{ copied() ? 'Đã chép link' : 'Chép link mời' }}</button>
-    <button class="btn-ghost small" (click)="leave()">Rời phòng</button>
+    <button class="btn-ghost small" (click)="copyLink()">{{ (copied() ? 'Đã chép link' : 'Chép link mời') | t }}</button>
+    <button class="btn-ghost small" (click)="leave()">{{ 'Rời phòng' | t }}</button>
+    <app-lang-switch />
   </div>
-  @if (!no3d()) {
-    <div class="views" role="group" aria-label="Góc nhìn">
-      <button class="chip" [attr.aria-pressed]="view() === 'all'" (click)="setView('all')">Cả phòng</button>
-      <button class="chip" [attr.aria-pressed]="view() === 'stage'" (click)="setView('stage')">Sân khấu</button>
-      <button class="chip" [attr.aria-pressed]="view() === 'me'" (click)="setView('me')">Chỗ tôi</button>
-      <button class="chip" [attr.aria-pressed]="lowPower()" (click)="toggleLowPower()" title="Tắt đèn nháy, bóng bay và giảm độ nét để máy chạy mượt hơn">Tiết kiệm pin</button>
+  @if (!no3d() && !remote) {
+    <div class="views" role="group" [attr.aria-label]="'Góc nhìn' | t">
+      <button class="chip" [attr.aria-pressed]="view() === 'all'" (click)="setView('all')">{{ 'Cả phòng' | t }}</button>
+      <button class="chip" [attr.aria-pressed]="view() === 'stage'" (click)="setView('stage')">{{ 'Sân khấu' | t }}</button>
+      <button class="chip" [attr.aria-pressed]="view() === 'me'" (click)="setView('me')">{{ 'Chỗ tôi' | t }}</button>
+      <button class="chip" [attr.aria-pressed]="lowPower()" (click)="toggleLowPower()" [title]="'Tắt đèn nháy, bóng bay và giảm độ nét để máy chạy mượt hơn' | t">{{ 'Tiết kiệm pin' | t }}</button>
     </div>
-    <p class="seat-hint">Bấm vào ghế trống để đổi chỗ</p>
+    <p class="seat-hint">{{ 'Bấm vào ghế trống để đổi chỗ' | t }}</p>
   }
-  <div class="hype" [class.full]="dancing()" role="meter" aria-label="Độ sôi động" [attr.aria-valuenow]="(rt.party().hype * 100).toFixed(0)" aria-valuemin="0" aria-valuemax="100">
+  <div class="hype" [class.full]="dancing()" role="meter" [attr.aria-label]="'Độ sôi động' | t" [attr.aria-valuenow]="(rt.party().hype * 100).toFixed(0)" aria-valuemin="0" aria-valuemax="100">
     <span>{{ dancing() ? 'Quẩy hết cỡ! 🎉' : rt.party().hype > 0.7 ? 'Sắp nổ rồi, lắc tiếp!' : 'Sôi động' }}</span>
     <i><b [style.width.%]="dancing() ? 100 : rt.party().hype * 100"></b></i>
   </div>
@@ -60,7 +61,7 @@
 
 <footer class="controls panel">
   <div class="song">
-    <button class="btn-ghost" type="button" (click)="playTestTrack()" [disabled]="busy()">Nhạc thử nhịp</button>
+    <button class="btn-ghost" type="button" (click)="playTestTrack()" [disabled]="busy()">{{ 'Nhạc thử nhịp' | t }}</button>
     @if (rt.playback().song) {
       <button class="btn-ghost" type="button" (click)="togglePause()">{{ rt.playback().paused ? 'Phát tiếp' : 'Tạm dừng' }}</button>
     }
@@ -74,18 +75,18 @@
             (pointerdown)="$event.preventDefault(); talk.press(true)" (pointerup)="talk.press(false)"
             (pointercancel)="talk.press(false)" (pointerleave)="talk.press(false)"
             (keydown.space)="$event.preventDefault(); talk.press(true)" (keyup.space)="talk.press(false)"
-            [disabled]="isSinger() || isPartner()" title="Giữ để nói (hoặc giữ phím V)">
-      🎙️ {{ talk.sending() ? 'Đang nói…' : 'Giữ để nói (V)' }}
+            [disabled]="isSinger() || isPartner()" [title]="'Giữ để nói (hoặc giữ phím V)' | t">
+      🎙️ {{ (talk.sending() ? 'Đang nói…' : 'Giữ để nói (V)') | t }}
     </button>
-    <label class="switch" title="Mic luôn bật, tự tắt khi bạn im lặng">
+    <label class="switch" [title]="'Mic luôn bật, tự tắt khi bạn im lặng' | t">
       <input type="checkbox" [checked]="talk.mode() === 'open'" (change)="talk.setMode($any($event.target).checked ? 'open' : 'ptt')"
-             [disabled]="isSinger() || isPartner()" /> Mic mở
+             [disabled]="isSinger() || isPartner()" /> {{ 'Mic mở' | t }}
     </label>
-    <button class="btn-ghost cheer" (click)="cheer()">📣 Hú hét</button>
+    <button class="btn-ghost cheer" (click)="cheer()">{{ '📣 Hú hét' | t }}</button>
     @if (isSinger() || isPartner()) {
-      <label class="switch"><input type="checkbox" [checked]="talk.singerMutesAudience()" (change)="talk.singerMutesAudience.set($any($event.target).checked)" /> Tắt tiếng khán giả</label>
+      <label class="switch"><input type="checkbox" [checked]="talk.singerMutesAudience()" (change)="talk.singerMutesAudience.set($any($event.target).checked)" /> {{ 'Tắt tiếng khán giả' | t }}</label>
     } @else {
-      <label class="aud" for="aud">Khán giả khi hát
+      <label class="aud" for="aud">{{ 'Khán giả khi hát' | t }}
         <input id="aud" type="range" min="0" max="100" step="5" [value]="talk.audienceLevel() * 100" (input)="talk.setAudienceLevel(+$any($event.target).value / 100)" />
         <b>{{ (talk.audienceLevel() * 100).toFixed(0) }}%</b>
       </label>
@@ -95,7 +96,7 @@
   @if (singerAway(); as a) {
     <div class="away-banner" role="status">
       <span>{{ a.name }} mất kết nối — bài sẽ dừng sau {{ a.secs }} giây</span>
-      <button class="btn-main" (click)="keepSong()">Giữ bài</button>
+      <button class="btn-main" (click)="keepSong()">{{ 'Giữ bài' | t }}</button>
     </div>
   }
 
@@ -103,25 +104,25 @@
     @if (isPartner()) {
       <span class="live">● Song ca với {{ rt.stage().singerName ?? '…' }}</span>
       @if (!partnerMic()) {
-        <button class="btn-pink" (click)="voice.headphones() === null ? ask('partner') : talk.startPartnerMic(voice.headphones()!)">🎤 Bật micro</button>
+        <button class="btn-pink" (click)="voice.headphones() === null ? ask('partner') : talk.startPartnerMic(voice.headphones()!)">{{ '🎤 Bật micro' | t }}</button>
       }
-      <button class="btn-ghost" (click)="leavePartner()">Xuống sân khấu</button>
+      <button class="btn-ghost" (click)="leavePartner()">{{ 'Xuống sân khấu' | t }}</button>
     } @else if (isSinger() && !voice.micOn()) {
-      <span class="live">Đến lượt bạn hát!</span>
+      <span class="live">{{ 'Đến lượt bạn hát!' | t }}</span>
       @if (voice.autoArmFailed()) {
-        <button class="btn-pink" (click)="retryMic()" [disabled]="busy()">Không mở được micro — bấm để thử lại</button>
+        <button class="btn-pink" (click)="retryMic()" [disabled]="busy()">{{ 'Không mở được micro — bấm để thử lại' | t }}</button>
       } @else if (voice.headphones() === null) {
-        <button class="btn-pink" (click)="ask('sing')" [disabled]="busy()">🎤 Bật micro</button>
+        <button class="btn-pink" (click)="ask('sing')" [disabled]="busy()">{{ '🎤 Bật micro' | t }}</button>
       } @else {
-        <span class="listening">Đang mở micro…</span>
+        <span class="listening">{{ 'Đang mở micro…' | t }}</span>
       }
-      <button class="btn-ghost" (click)="stopSinging()">Bỏ lượt</button>
+      <button class="btn-ghost" (click)="stopSinging()">{{ 'Bỏ lượt' | t }}</button>
     } @else if (isSinger()) {
       <span class="live">● Đang hát · {{ voice.listenersConnected() }} người đang nghe</span>
-      <span class="meter" role="meter" aria-label="Âm lượng micro" [attr.aria-valuenow]="micLevel()" aria-valuemin="0" aria-valuemax="100">
+      <span class="meter" role="meter" [attr.aria-label]="'Âm lượng micro' | t" [attr.aria-valuenow]="micLevel()" aria-valuemin="0" aria-valuemax="100">
         <i [style.width.%]="micLevel()"></i>
       </span>
-      <button class="btn-ghost" (click)="stopSinging()">Xuống sân khấu</button>
+      <button class="btn-ghost" (click)="stopSinging()">{{ 'Xuống sân khấu' | t }}</button>
       @if (micSilentSec() > 5 && !isIOS) {
         <p class="hint">Micro chưa nghe thấy tiếng. Thử nói to hơn. Trên iPhone: kiểm tra Cài đặt → Safari → Micro; nếu dùng tai nghe Bluetooth, thử tháo ra.</p>
       }
@@ -135,16 +136,16 @@
       </span>
       @if (voice.hearingSinger()) {
         <label class="tune" for="tune">
-          <span>Giọng trễ hơn nhạc? Kéo sang phải</span>
+          <span>{{ 'Giọng trễ hơn nhạc? Kéo sang phải' | t }}</span>
           <input id="tune" type="range" min="-400" max="400" step="10" [value]="voice.manualOffsetMs()"
                  (input)="voice.setManualOffset(+$any($event.target).value)" />
           <b>{{ voice.manualOffsetMs() > 0 ? '+' : '' }}{{ voice.manualOffsetMs() }} ms</b>
-          @if (voice.manualOffsetMs() !== 0) { <button type="button" class="reset" (click)="voice.setManualOffset(0)">Về 0</button> }
+          @if (voice.manualOffsetMs() !== 0) { <button type="button" class="reset" (click)="voice.setManualOffset(0)">{{ 'Về 0' | t }}</button> }
         </label>
       }
     } @else {
       <!-- The stage is never reserved: open whenever nobody is on it, even mid-song (R-09). -->
-      <button class="btn-pink" (click)="ask('sing')" [disabled]="busy()">🎤 Lên hát</button>
+      <button class="btn-pink" (click)="ask('sing')" [disabled]="busy()">{{ '🎤 Lên hát' | t }}</button>
     }
   </div>
 
@@ -160,12 +161,18 @@
 @if (cungWord()) { <div class="hud cung" aria-live="assertive">{{ cungWord() }}</div> }
 <app-score-overlay />
 
+@if (offline() && !rt.error()) {
+  <div class="hud offline" role="alert">
+    <b>{{ 'Mất kết nối' | t }}</b> {{ '— đang thử kết nối lại… Nhạc vẫn chạy; ghế và bài của bạn được giữ 20 giây.' | t }}
+  </div>
+}
+
 @if (toast()) { <div class="hud toast panel" role="status">{{ toast() }}</div> }
 
 @if (voice.needsTap()) {
   <div class="hud gate">
-    <button class="btn-pink enter" (click)="voice.retryAudio()">Bấm để nghe ca sĩ</button>
-    <p>Trình duyệt chặn âm thanh tự động phát</p>
+    <button class="btn-pink enter" (click)="voice.retryAudio()">{{ 'Bấm để nghe ca sĩ' | t }}</button>
+    <p>{{ 'Trình duyệt chặn âm thanh tự động phát' | t }}</p>
   </div>
 }
 
@@ -175,7 +182,7 @@
     <p><b>{{ inv.title }}</b> · thứ {{ inv.position }} trong danh sách</p>
     <div class="bar"><i [style.width.%]="(inviteLeft() / 30) * 100"></i></div>
     <div class="row">
-      <button class="btn-pink" (click)="answerInvite(true)">Đồng ý</button>
+      <button class="btn-pink" (click)="answerInvite(true)">{{ 'Đồng ý' | t }}</button>
       <button class="btn-ghost" (click)="answerInvite(false)">Từ chối ({{ inviteLeft() }}s)</button>
     </div>
   </div>
@@ -183,24 +190,24 @@
 
 @if (askHeadphones()) {
   <div class="hud dialog panel" role="dialog" aria-labelledby="hp-title">
-    <h2 id="hp-title">Bạn đang dùng tai nghe gì?</h2>
+    <h2 id="hp-title">{{ 'Bạn đang dùng tai nghe gì?' | t }}</h2>
     @if (askHeadphones() === 'prepare') {
-      <p>Đã thêm bài! Trả lời một lần để tới lượt bạn, micro tự bật mà không cần bấm thêm.</p>
+      <p>{{ 'Đã thêm bài! Trả lời một lần để tới lượt bạn, micro tự bật mà không cần bấm thêm.' | t }}</p>
     }
-    <p><b>Nên dùng tai nghe có dây.</b> AirPods và tai nghe Bluetooth khác chuyển micro sang chế độ gọi điện chất lượng thấp, dễ làm giọng bị đứt quãng. Với tai nghe, giọng hát được gửi đi nguyên chất. Không có tai nghe, nhạc từ loa có thể lọt vào micro nên phải bật lọc tiếng vọng. Tai nghe Bluetooth chậm hơn khoảng 0,2 giây; ứng dụng sẽ bù phần này cho người nghe.</p>
+    <p><b>{{ 'Nên dùng tai nghe có dây.' | t }}</b> AirPods và tai nghe Bluetooth khác chuyển micro sang chế độ gọi điện chất lượng thấp, dễ làm giọng bị đứt quãng. Với tai nghe, giọng hát được gửi đi nguyên chất. Không có tai nghe, nhạc từ loa có thể lọt vào micro nên phải bật lọc tiếng vọng. Tai nghe Bluetooth chậm hơn khoảng 0,2 giây; ứng dụng sẽ bù phần này cho người nghe.</p>
     <div class="row">
-      <button class="btn-pink" (click)="answer('wired')">Có, tai nghe có dây</button>
-      <button class="btn-ghost" (click)="answer('bluetooth')">Tai nghe Bluetooth</button>
-      <button class="btn-ghost" (click)="answer('none')">Không có tai nghe</button>
+      <button class="btn-pink" (click)="answer('wired')">{{ 'Có, tai nghe có dây' | t }}</button>
+      <button class="btn-ghost" (click)="answer('bluetooth')">{{ 'Tai nghe Bluetooth' | t }}</button>
+      <button class="btn-ghost" (click)="answer('none')">{{ 'Không có tai nghe' | t }}</button>
     </div>
-    <button class="link" (click)="askHeadphones.set(null)">{{ askHeadphones() === 'prepare' ? 'Để sau' : 'Huỷ' }}</button>
+    <button class="link" (click)="askHeadphones.set(null)">{{ (askHeadphones() === 'prepare' ? 'Để sau' : 'Huỷ') | t }}</button>
   </div>
 }
 
 @if (!audio.unlocked() && !rt.error()) {
   <div class="hud gate">
-    <button class="btn-pink enter" (click)="enter()">Vào phòng</button>
-    <p>Bấm để bật âm thanh</p>
+    <button class="btn-pink enter" (click)="enter()">{{ 'Vào phòng' | t }}</button>
+    <p>{{ 'Bấm để bật âm thanh' | t }}</p>
   </div>
 }
 
@@ -214,6 +221,6 @@
 @if (rt.error()) {
   <div class="hud alert panel" role="alert">
     <p>{{ rt.error() }}</p>
-    <button class="btn-main" (click)="leave()">Về sảnh</button>
+    <button class="btn-main" (click)="leave()">{{ 'Về sảnh' | t }}</button>
   </div>
 }

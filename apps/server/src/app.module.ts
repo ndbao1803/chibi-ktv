@@ -8,6 +8,7 @@ import { DbModule } from './db/db.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { RoomsModule } from './rooms/rooms.module.js';
 import { HealthController } from './health/health.controller.js';
+import { ClientErrorsController } from './telemetry/client-errors.controller.js';
 
 // In production the server also serves the built Angular app (one free Render service).
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -24,6 +25,6 @@ const staticSite = existsSync(webDist)
     RoomsModule,
     ...staticSite,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, ClientErrorsController],
 })
 export class AppModule {}

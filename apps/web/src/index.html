@@ -11,6 +11,16 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap">
 </head>
 <body>
-  <app-root></app-root>
+  <app-root>
+    <!-- Shown until the app starts. The free server sleeps when nobody uses it and needs about a minute to wake. -->
+    <div style="position:fixed;inset:0;display:grid;place-items:center;background:#0b0912;color:#f4effa;font:500 15px 'Be Vietnam Pro',system-ui,sans-serif;text-align:center;padding:24px">
+      <div>
+        <div style="font:28px Bungee,Impact,sans-serif;color:#ff3fa4;margin-bottom:10px">CHIBI <span style="color:#33e1ed">KTV</span></div>
+        <div>Đang mở phòng hát…</div>
+        <div style="margin-top:8px;color:#a89bbd;font-size:13px;opacity:0;animation:wake .4s 4s forwards">Máy chủ miễn phí đang thức dậy, có thể mất khoảng 1 phút. Cứ để trang mở nhé!</div>
+      </div>
+    </div>
+    <style>@keyframes wake{to{opacity:1}}</style>
+  </app-root>
 </body>
 </html>

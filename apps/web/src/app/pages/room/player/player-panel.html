@@ -15,11 +15,11 @@
         }
       </div>
       <div class="bar">Ô nhịp {{ beat() < 0 ? 0 : (beat() - (beat() % 4)) / 4 + 1 }}</div>
-      <p>Mở trên 2 máy cạnh nhau: tiếng click phải vang cùng lúc.</p>
+      <p>{{ 'Mở trên 2 máy cạnh nhau: tiếng click phải vang cùng lúc.' | t }}</p>
     </div>
   }
   @if (!song()) {
-    <div class="empty">Chưa có bài — dán link YouTube vào “Danh sách bài” để thêm, hoặc bấm “Nhạc thử nhịp”.</div>
+    <div class="empty">{{ 'Chưa có bài — dán link YouTube vào “Danh sách bài” để thêm, hoặc bấm “Nhạc thử nhịp”.' | t }}</div>
   }
 
   <!-- Status lives outside the player (Y-07). -->
@@ -31,7 +31,7 @@
 
   <footer>
     <label class="vol">
-      <span>Âm lượng nhạc</span>
+      <span>{{ 'Âm lượng nhạc' | t }}</span>
       <input type="range" min="0" max="100" [value]="volume()" (input)="setVolume(+$any($event.target).value)" />
     </label>
     @if (syncErrMs() !== null) {

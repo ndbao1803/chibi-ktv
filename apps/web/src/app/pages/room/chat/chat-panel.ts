@@ -1,3 +1,4 @@
+import { TranslatePipe } from '../../../core/i18n';
 import { Component, computed, effect, ElementRef, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CHAT_MAX, parseYouTubeId, QUICK_PHRASES, type ChatMessage } from '@ktv/shared';
@@ -23,7 +24,7 @@ interface Line {
  */
 @Component({
   selector: 'app-chat-panel',
-  imports: [FormsModule],
+  imports: [FormsModule, TranslatePipe],
   templateUrl: './chat-panel.html',
   styleUrl: './chat-panel.scss',
 })

@@ -2,7 +2,7 @@
 
 A 3D karaoke room for friends: chibi avatars on a neon KTV sofa, a synced YouTube video, one or two singers on stage, and everyone else cheering. Free to run.
 
-This repository covers **Phases 0–5** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, the hard part (everyone hears the song in step, and listeners hear the singer on the beat), and a real song queue with turns. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
+This repository covers **all 7 phases (0–6)** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, the hard part (everyone hears the song in step, and listeners hear the singer on the beat), and a real song queue with turns. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
 
 ## What works now
 
@@ -160,6 +160,23 @@ Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length
 - **Rating:** 30 s before a song ends (or when it is skipped) everyone except the singers gets 1–5 stars. 10 s after the end the KTV score screen counts up to the score (stars plus up to +10 for hype) with a comment. Scores go in the chat; **🏆 Bảng điểm** shows the night's best and "Ca sĩ của đêm".
 - `pnpm test:party` checks all of this with three browsers.
 
+**Phase 6 (polish):**
+
+- **When things go wrong:** a red banner when the connection drops ("Mất kết nối — đang thử kết nối lại…"; your seat and songs are kept for 20 s), clear messages for a blocked mic or an unplayable video, and a "waking up" note while the free server starts (it sleeps when nobody uses it and needs about a minute).
+- **Phones held upright** get a "remote" view: no 3D (saves battery), the video, queue, controls and chat stacked in one scrolling column. Turn the phone sideways and reload for the 3D room.
+- **English:** the **VI | EN** switch (login, lobby, room) translates the interface. Messages from the server (notices, chat lines) stay Vietnamese.
+- **Error reports** go to our own server log (Render → Logs), not to a paid service: the error text, the page and the browser name only.
+- **Privacy page** at `/privacy`: what is stored (account, rooms), what never is (voices, chat, scores).
+
+## The first karaoke night (checklist)
+
+1. **A minute before:** open the site so the free server wakes up. Create the room (16 seats if more than 8 people) and send the invite link.
+2. **Everyone:** use Chrome or Safari, wear **wired earphones** if you will sing (Bluetooth works, AirPods make the mic sound like a phone call), and press **Vào phòng**.
+3. **Test the sync once:** **Nhạc thử nhịp** and **Lên hát** for 20 seconds; listeners should see "Theo ca sĩ ±… ms" on the video.
+4. **Queue songs** with "karaoke" or "beat" YouTube links. If a video can't play here, it is skipped for everyone.
+5. **Talk** with **V** (or tick Mic mở), cheer with 📣, shake with **Space**, rate with stars at the end of each song.
+6. **Afterwards:** note what broke or felt slow (who, which phone, which network) and what was the most fun.
+
 ## Try it on two laptops (checklist)
 
 1. Laptop A creates a room, laptop B opens the invite link (different networks if you can, e.g. one on 4G hotspot).
@@ -168,9 +185,8 @@ Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length
 4. B presses **Bỏ qua bài này** → B's song starts, B's mic switches on.
 5. B refreshes the page mid-song → A sees "Bình mất kết nối…", B comes back on stage within a few seconds.
 
-## Next: Phase 6 (polish and the first night)
+## What is left for later
 
-- Clear error messages everywhere (mic denied, connection lost, unplayable video)
-- Phone layouts; Vietnamese and English text
-- Error reporting and a simple privacy page
-- Karaoke night with 8 friends
+- The **host** features (lock the room, kick, reorder the queue, room-wide switches for pranks and "quiet while singing").
+- **Google sign-in**, song **search** inside the app (only pasted links today), the automatic **voice score** (needs reference note files).
+- Server messages in English, and a real test on many phones and networks: the first karaoke night is that test.

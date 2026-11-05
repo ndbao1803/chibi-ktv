@@ -152,3 +152,25 @@
   .left { width: auto; right: max(16px, env(safe-area-inset-right, 0px)); min-width: 0; }
   .cung { left: 50%; }
 }
+
+.offline {
+  top: calc(12px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 8;
+  max-width: min(460px, calc(100% - 32px)); padding: 10px 16px; border-radius: 10px; font-size: 13px;
+  background: #3a1020; border: 1px solid var(--bad); color: #ffd9e3; text-align: center;
+}
+
+/* N-07: phone held upright — no 3D, everything stacked in one scrolling column. */
+:host(.remote) {
+  position: static; min-height: 100dvh; overflow-y: auto;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+  display: flex; flex-direction: column; gap: 8px;
+  .scene { display: none; }
+  .hud.side, .hud.left { position: static; width: auto; max-height: none; overflow: visible; min-width: 0; }
+  .hud.side { order: 1; }
+  .hud.left { order: 0; display: contents; }
+  .brand { order: 0; align-self: stretch; }
+  .chatbox { order: 3; width: auto; }
+  .spacer { display: none; }
+  .controls { order: 2; }
+  .members { display: block; }
+}

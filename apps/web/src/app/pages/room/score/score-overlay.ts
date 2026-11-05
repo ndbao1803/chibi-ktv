@@ -1,3 +1,4 @@
+import { TranslatePipe } from '../../../core/i18n';
 import { Component, computed, effect, inject, OnDestroy, signal, untracked } from '@angular/core';
 import type { ScoreResult } from '@ktv/shared';
 import { AuthService } from '../../../core/auth.service';
@@ -10,6 +11,7 @@ import { RealtimeService } from '../realtime.service';
  */
 @Component({
   selector: 'app-score-overlay',
+  imports: [TranslatePipe],
   templateUrl: './score-overlay.html',
   styleUrl: './score-overlay.scss',
 })

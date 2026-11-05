@@ -1,5 +1,19 @@
 # Progress — 5 Nov 2026
 
+## Update: Phase 6 complete — every phase of the build plan is built
+- Offline banner (also on the browser's `offline` event, since a WebSocket only notices after its
+  ping timeout), "server waking up" note in `index.html`, phone portrait remote mode (no 3D),
+  VI/EN switch (`core/i18n.ts`, 124 interface strings), crash reports to `/api/client-errors`
+  (server log; no Sentry account needed), `/privacy` page.
+- Fixed: Enter in chat/queue now calls send directly (a zoneless re-render can lag a frame behind,
+  and a still-disabled button blocks Enter); party test waits for toasts instead of sleeping.
+- Final full run: shared 19, server unit 63, e2e 30, web 20, T-01 PASS (worst 18.1 ms),
+  test:voice 11/11, test:party 16/16 three times in a row.
+- Left for real life: the karaoke night (README checklist), real phones and networks.
+- Later: host features, Google sign-in, in-app search, voice score.
+
+---
+
 ## Update: Phase 5 complete (the party layer)
 - Server `rooms/room-party.ts`: shakers (≤8 msgs/s each), hype that fills from shaking and effects
   and starts an 8 s crowd dance, per-person and per-room cooldowns, chat (rate limit, word filter,
