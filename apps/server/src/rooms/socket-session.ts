@@ -23,16 +23,7 @@ export function leaveCurrentRoom(live: RoomLiveService, client: KtvSocket) {
   client.data.roomCode = undefined;
   const state = live.get(code);
   if (!state) return;
-  const wasSinger = state.stage.singerId === user.id || state.queue.current?.entry.singerId === user.id;
-  if (state.removeSocket(user.id, client.id)) {
-    live.emitPresence(state);
-    if (wasSinger) {
-      // An ad-hoc stage use or a running turn: either way `RoomState.removeSocket` already
-      // advanced the turn when needed, so playback and the queue may have changed too.
-      live.emitStage(state);
-      live.emitPlayback(state);
-      live.emitQueue(state);
-    }
-  }
-  live.scheduleCleanupIfEmpty(code);
+  // Their last tab closing only marks them away for 20 s (N-12); the room tick removes them later.
+  const effects = state.removeSocket(user.id, client.id);
+  if (effects) live.apply(state, effects);
 }

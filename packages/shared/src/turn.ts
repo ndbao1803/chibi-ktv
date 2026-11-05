@@ -6,6 +6,9 @@ import type { QueueEntry } from './queue.js';
 /** Extra seconds given after the expected end before the server ends the song (Y-11). */
 export const SONG_END_GRACE_SEC = 2;
 
+/** How long a disconnected member keeps their seat, queue entries and vote (N-12, R-09). */
+export const AWAY_GRACE_MS = 20_000;
+
 export interface TurnState {
   entry: QueueEntry;
   startedAtServerMs: number;

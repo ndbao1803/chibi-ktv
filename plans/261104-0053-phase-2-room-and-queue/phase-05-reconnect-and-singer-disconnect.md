@@ -167,18 +167,18 @@ Modify
 
 ## Todo List
 
-- [ ] `AWAY_GRACE_MS` in shared
-- [ ] `away` / `awayUntilMs` on `Member`, in `presence()` and in capacity counting
-- [ ] Re-join inside the grace keeps seat, queue entries and votes
-- [ ] Away sweep removes the member, their entries and their vote
-- [ ] Singer-away: music keeps playing, stage is freed for anyone, 20 s song deadline, notice
-- [ ] `stage:take` keeps its Phase 1 guard only (no turn/reservation check) and clears the deadline
+- [x] `AWAY_GRACE_MS` in shared
+- [x] `away` / `awayUntilMs` on `Member`, in `presence()` and in capacity counting
+- [x] Re-join inside the grace keeps seat, queue entries and votes
+- [x] Away sweep removes the member, their entries and their vote
+- [x] Singer-away: music keeps playing, stage is freed for anyone, 20 s song deadline, notice
+- [x] `stage:take` keeps its Phase 1 guard only (no turn/reservation check) and clears the deadline
       with `kept = true`
-- [ ] `turn:keep` keeps the song and never touches the stage
-- [ ] Singer's return restores the stage only when it is still empty
-- [ ] Empty-room TTL only after the sweep
-- [ ] `advance()` skips entries whose singer has left
-- [ ] Unit tests for all eight scenarios green
+- [x] `turn:keep` keeps the song and never touches the stage
+- [x] Singer's return restores the stage only when it is still empty
+- [x] Empty-room TTL only after the sweep
+- [x] `advance()` skips entries whose singer has left
+- [x] Unit tests for all eight scenarios green
 
 ## Success Criteria
 

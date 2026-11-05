@@ -3,6 +3,7 @@ import {
   expectedPosition,
   msUntilSongEnd,
   SONG_END_GRACE_SEC,
+  AWAY_GRACE_MS,
   START_LEAD_MS,
   skipDecision,
   type PlaybackState,
@@ -17,10 +18,15 @@ import { SkipVotes } from './room-skip.js';
 /** YouTube player errors that mean "this video will never play here" (bad id, removed, embedding off). */
 const FATAL_PLAYER_ERRORS = new Set([2, 100, 101, 150]);
 
+/** How long a dropped member keeps their seat, queue entries and vote (N-12, R-09; Decided #2). */
+
 interface Member {
   displayName: string;
   sockets: Set<string>;
   joinedAt: number;
+  /** All tabs closed (network drop, page reload): still counted, until `awayUntilMs`. */
+  away: boolean;
+  awayUntilMs: number | null;
 }
 
 /** What changed, so the caller (`RoomLiveService`) knows exactly what to broadcast. */
@@ -37,6 +43,8 @@ export interface Effects {
  * Everything live about one room, kept in memory: who is here, what is playing, who is singing,
  * and the song queue. Version 1 has no host, so any member may change these.
  */
+export { AWAY_GRACE_MS };
+
 export class RoomState {
   private readonly members = new Map<string, Member>();
   playback: PlaybackState = { ...EMPTY_PLAYBACK };
@@ -54,28 +62,53 @@ export class RoomState {
 
   /* ----- presence ----- */
 
-  addSocket(userId: string, displayName: string, socketId: string) {
-    const m = this.members.get(userId) ?? { displayName, sockets: new Set<string>(), joinedAt: this.now() };
+  /**
+   * Adds a tab. Someone coming back within their away grace keeps their seat, songs and vote;
+   * if their turn is still running and nobody took the stage, they get the stage back (R-09).
+   */
+  addSocket(userId: string, displayName: string, socketId: string): Effects {
+    const existing = this.members.get(userId);
+    const m = existing ?? { displayName, sockets: new Set<string>(), joinedAt: this.now(), away: false, awayUntilMs: null };
     m.sockets.add(socketId);
     this.members.set(userId, m);
+    if (!existing?.away) return {};
+    m.away = false;
+    m.awayUntilMs = null;
+    const turn = this.queue.current;
+    if (turn?.entry.singerId === userId && !this.stage.singerId) {
+      this.stage = { singerId: userId, singerName: m.displayName };
+      this.queue.setCurrent({ ...turn, singerAwayUntilMs: null });
+      return { stage: true, queue: true, notice: `${m.displayName} đã kết nối lại` };
+    }
+    return {};
   }
 
-  /** Removes one socket. A person with two tabs counts once; returns true when they left completely. */
-  removeSocket(userId: string, socketId: string): boolean {
+  /**
+   * Removes one tab. A person with two tabs counts once. When their last tab closes they are only
+   * marked away for 20 s; returns null while they still have a tab open.
+   * If they were singing, the stage opens for anyone, and the song stops after the grace unless
+   * someone keeps it ("Giữ bài") or takes the stage (R-09, Decided #3).
+   */
+  removeSocket(userId: string, socketId: string): Effects | null {
     const m = this.members.get(userId);
-    if (!m) return false;
+    if (!m) return null;
     m.sockets.delete(socketId);
-    if (m.sockets.size > 0) return false;
-    this.members.delete(userId);
-    this.skips.drop(userId); // the next tick re-counts and broadcasts
-    // TODO phase 05: an away-grace window before any of this fires, and drop their pending queue
-    // entries via `this.queue.removeAllOf(userId)` only once the grace actually expires (R-09, N-12).
-    if (this.queue.current?.entry.singerId === userId) {
-      this.advance(); // the turn's singer is gone for good; move on rather than stall the queue
-    } else if (this.stage.singerId === userId) {
-      this.stage = { singerId: null, singerName: null };
+    if (m.sockets.size > 0) return null;
+    m.away = true;
+    m.awayUntilMs = this.now() + AWAY_GRACE_MS;
+    if (this.stage.singerId !== userId) return { presence: true };
+    this.stage = { singerId: null, singerName: null };
+    const turn = this.queue.current;
+    if (turn && !turn.kept) {
+      this.queue.setCurrent({ ...turn, singerAwayUntilMs: this.now() + AWAY_GRACE_MS });
+      return {
+        presence: true,
+        stage: true,
+        queue: true,
+        notice: `${m.displayName} mất kết nối — bài sẽ dừng sau 20 giây. Bấm “Giữ bài” hoặc lên hát tiếp.`,
+      };
     }
-    return true;
+    return { presence: true, stage: true };
   }
 
   has(userId: string) {
@@ -93,7 +126,7 @@ export class RoomState {
   presence(): PresenceList {
     return [...this.members.entries()]
       .sort((a, b) => a[1].joinedAt - b[1].joinedAt)
-      .map(([userId, m]) => ({ userId, displayName: m.displayName, away: false })); // TODO phase 05: real away state
+      .map(([userId, m]) => ({ userId, displayName: m.displayName, away: m.away }));
   }
 
   /* ----- playback ----- */
@@ -127,14 +160,31 @@ export class RoomState {
 
   /* ----- stage ----- */
 
-  takeStage(userId: string): { ok: true } | { ok: false; error: string } {
+  /** Anyone may take an empty stage. Mid-song after the singer dropped, they finish that song. */
+  takeStage(userId: string): { ok: true; effects: Effects } | { ok: false; error: string } {
     const m = this.members.get(userId);
     if (!m) return { ok: false, error: 'Bạn chưa ở trong phòng' };
     if (this.stage.singerId && this.stage.singerId !== userId) {
       return { ok: false, error: `${this.stage.singerName} đang hát` };
     }
+    const already = this.stage.singerId === userId;
     this.stage = { singerId: userId, singerName: m.displayName };
-    return { ok: true };
+    const turn = this.queue.current;
+    if (turn?.singerAwayUntilMs) {
+      this.queue.setCurrent({ ...turn, singerAwayUntilMs: null, kept: true });
+      return { ok: true, effects: { stage: true, queue: true, notice: `${m.displayName} lên hát tiếp bài này` } };
+    }
+    return { ok: true, effects: already ? {} : { stage: true } };
+  }
+
+  /** "Giữ bài": the song keeps playing although its singer dropped. It never reserves the stage. */
+  keepSong(userId: string): { ok: true; effects: Effects } | { ok: false; error: string } {
+    const m = this.members.get(userId);
+    if (!m) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const turn = this.queue.current;
+    if (!turn?.singerAwayUntilMs) return { ok: false, error: 'Không có bài nào cần giữ' };
+    this.queue.setCurrent({ ...turn, singerAwayUntilMs: null, kept: true });
+    return { ok: true, effects: { queue: true, notice: `${m.displayName} đã giữ bài — cả phòng hát tiếp` } };
   }
 
   /** `stage:leave` by the running turn's singer ends the turn (S-01); by anyone else it is a no-op. */
@@ -226,13 +276,15 @@ export class RoomState {
 
     this.setSong(next.song, next.singerName);
     this.queue.sung(next.singerId);
-    this.stage = { singerId: next.singerId, singerName: next.singerName };
+    // A singer who is away right now gets the same rule as dropping mid-song: open stage, 20 s grace.
+    const nextAway = this.members.get(next.singerId)?.away ?? false;
+    this.stage = nextAway ? { singerId: null, singerName: null } : { singerId: next.singerId, singerName: next.singerName };
     const durationSec = next.song.durationSec;
     this.queue.setCurrent({
       entry: next,
       startedAtServerMs: this.playback.startedAtServerMs,
       endsAtServerMs: durationSec == null ? null : this.playback.startedAtServerMs + (durationSec + SONG_END_GRACE_SEC) * 1000,
-      singerAwayUntilMs: null,
+      singerAwayUntilMs: nextAway ? this.members.get(next.singerId)!.awayUntilMs : null,
       kept: false,
     });
     return this.withSkip({ playback: true, stage: true, queue: true });
@@ -271,17 +323,32 @@ export class RoomState {
 
   /** Every server-time deadline in the room (song end, away grace, vote re-counts) in one place. */
   tick(now: number): Effects {
+    // N-12: members away longer than the grace leave for good, with their songs and their vote.
+    let swept = false;
+    for (const [id, m] of this.members) {
+      if (m.away && m.awayUntilMs !== null && m.awayUntilMs <= now) {
+        this.members.delete(id);
+        this.queue.removeAllOf(id);
+        this.skips.drop(id);
+        swept = true;
+      }
+    }
+    const sweep: Effects = swept ? { presence: true, queue: true } : {};
+    // R-09: the singer dropped and nobody kept the song or took over: move on.
+    const turn = this.queue.current;
+    if (turn?.singerAwayUntilMs && turn.singerAwayUntilMs <= now) {
+      return { ...sweep, ...this.advance(), notice: 'Ca sĩ chưa quay lại — chuyển sang bài tiếp theo' };
+    }
     // Q-07: people leaving can make the existing votes enough (4 of 8 voted, 3 others left).
     const skipped = this.skipIfVoted();
-    if (skipped) return skipped;
+    if (skipped) return { ...sweep, ...skipped };
     // Y-11: the server, not each browser, decides the song is over (2 s grace for the last frames).
     const left = this.queue.current ? msUntilSongEnd(this.playback, now) : null;
     if (left !== null && left <= 0) {
       const effects = this.advance();
       const next = this.stage.singerName;
-      return { ...effects, notice: next ? `Hết bài — tới lượt ${next}` : 'Hết bài' };
+      return { ...sweep, ...effects, notice: next ? `Hết bài — tới lượt ${next}` : 'Hết bài' };
     }
-    // TODO phase 05: `singerAwayUntilMs` bookkeeping and the away-grace seat/queue protection.
-    return this.refreshSkip() ? { skip: true } : {};
+    return this.refreshSkip() ? { ...sweep, skip: true } : sweep;
   }
 }

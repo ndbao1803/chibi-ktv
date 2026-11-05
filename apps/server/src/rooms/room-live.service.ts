@@ -60,7 +60,11 @@ export class RoomLiveService implements OnModuleDestroy {
   }
 
   private startTick(code: string, state: RoomState) {
-    const timer = setInterval(() => this.apply(state, state.tick(Date.now())), TICK_MS).unref();
+    const timer = setInterval(() => {
+      this.apply(state, state.tick(Date.now()));
+      // The empty-room TTL only starts once even the away members are gone (R-10).
+      if (state.isEmpty && !this.cleanupTimers.has(code)) this.scheduleCleanupIfEmpty(code);
+    }, TICK_MS).unref();
     this.tickTimers.set(code, timer);
   }
 

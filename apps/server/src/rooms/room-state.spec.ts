@@ -1,4 +1,4 @@
-import { RoomState } from './room-state.js';
+import { AWAY_GRACE_MS, RoomState } from './room-state.js';
 import { START_LEAD_MS, expectedPosition } from '@ktv/shared';
 
 const song = { kind: 'test' as const, id: 'click' as const, title: 'Click', durationSec: 600 };
@@ -7,15 +7,30 @@ describe('RoomState', () => {
   let now = 1_000_000;
   const clock = () => now;
 
-  it('counts a person with two tabs once, and removes them only when both close', () => {
+  it('counts a person with two tabs once; closing both marks them away, the grace then removes them', () => {
     const r = new RoomState('ABC123', clock);
     r.addSocket('u1', 'Tuấn', 's1');
     r.addSocket('u1', 'Tuấn', 's2');
     r.addSocket('u2', 'Thảo Vy', 's3');
     expect(r.size).toBe(2);
-    expect(r.removeSocket('u1', 's1')).toBe(false);
-    expect(r.removeSocket('u1', 's2')).toBe(true);
+    expect(r.removeSocket('u1', 's1')).toBeNull(); // one tab left
+    expect(r.removeSocket('u1', 's2')).toEqual({ presence: true });
+    expect(r.presence()).toEqual([
+      { userId: 'u1', displayName: 'Tuấn', away: true },
+      { userId: 'u2', displayName: 'Thảo Vy', away: false },
+    ]);
+    expect(r.tick(now + AWAY_GRACE_MS - 1)).toEqual({});
+    expect(r.tick(now + AWAY_GRACE_MS)).toMatchObject({ presence: true, queue: true });
     expect(r.presence()).toEqual([{ userId: 'u2', displayName: 'Thảo Vy', away: false }]);
+  });
+
+  it('coming back within the grace keeps you in the room as if nothing happened', () => {
+    const r = new RoomState('ABC123', clock);
+    r.addSocket('u1', 'Tuấn', 's1');
+    r.removeSocket('u1', 's1');
+    r.addSocket('u1', 'Tuấn', 's9');
+    expect(r.tick(now + AWAY_GRACE_MS * 5)).toEqual({});
+    expect(r.presence()).toEqual([{ userId: 'u1', displayName: 'Tuấn', away: false }]);
   });
 
   it('starts a new song after a short lead time, pauses and resumes at the same spot', () => {
@@ -36,11 +51,11 @@ describe('RoomState', () => {
     const r = new RoomState('ABC123', clock);
     r.addSocket('u1', 'Tuấn', 's1');
     r.addSocket('u2', 'Thảo Vy', 's2');
-    expect(r.takeStage('u1')).toEqual({ ok: true });
+    expect(r.takeStage('u1')).toMatchObject({ ok: true });
     expect(r.takeStage('u2')).toEqual({ ok: false, error: 'Tuấn đang hát' });
     r.removeSocket('u1', 's1');
     expect(r.stage.singerId).toBeNull();
-    expect(r.takeStage('u2')).toEqual({ ok: true });
+    expect(r.takeStage('u2')).toMatchObject({ ok: true });
   });
 
   it('starts a turn when the first song is added: playback, stage and queue all update', () => {
@@ -158,7 +173,8 @@ describe('RoomState vote-skip (Q-07)', () => {
     const r = room(8);
     ['u3', 'u4', 'u5'].forEach((id) => vote(r, id));
     ['u6', 'u7', 'u8'].forEach((id) => r.removeSocket(id, `s${id.slice(1)}`));
-    const fx = r.tick(now);
+    expect(r.tick(now).notice).toBeUndefined(); // away people still count for 20 s (Decided #1)
+    const fx = r.tick(now + AWAY_GRACE_MS);
     expect(fx.notice).toBe('Cả phòng đã bỏ qua bài “Bài 1”');
     expect(r.playback.song?.title).toBe('Bài 2');
   });
@@ -167,9 +183,10 @@ describe('RoomState vote-skip (Q-07)', () => {
     const r = room(8);
     vote(r, 'u3');
     r.removeSocket('u3', 's3');
-    expect(r.tick(now)).toEqual({ skip: true });
+    expect(r.skipState()).toMatchObject({ have: 1, needed: 4 }); // still theirs during the grace
+    expect(r.tick(now + AWAY_GRACE_MS)).toMatchObject({ skip: true, presence: true });
     expect(r.skipState()).toMatchObject({ have: 0, needed: 3 });
-    expect(r.tick(now)).toEqual({}); // nothing new: no broadcast
+    expect(r.tick(now + AWAY_GRACE_MS)).toEqual({}); // nothing new: no broadcast
   });
 
   it('refuses the singer and an idle room; with an empty stage, everyone present may vote', () => {
@@ -247,5 +264,92 @@ describe('RoomState song end and broken videos (Y-11, Y-08)', () => {
     const fx = r.reportError(r.playback.rev, 150);
     expect(fx.notice).toBe('Video này không phát được — đã bỏ qua');
     expect(r.playback.song?.title).toBe('Bài 2');
+  });
+});
+
+describe('RoomState singer drops mid-song (R-09, N-12)', () => {
+  const t0 = 20_000_000;
+  let now = t0;
+  const yt = (n: number) => ({ kind: 'youtube' as const, id: `vid0000000${n}`, title: `Bài ${n}`, durationSec: 300 });
+  function room() {
+    now = t0;
+    const r = new RoomState('ABC123', () => now);
+    r.addSocket('u1', 'Tuấn', 's1');
+    r.addSocket('u2', 'Thảo Vy', 's2');
+    r.addSocket('u3', 'Khoa', 's3');
+    r.queue.add(yt(1), 'u1', 'Tuấn', now);
+    r.queue.add(yt(2), 'u2', 'Thảo Vy', now);
+    r.startTurnIfIdle();
+    return r;
+  }
+
+  it('the music keeps playing, the stage opens, and everyone is told about the 20 s', () => {
+    const r = room();
+    const song = r.playback;
+    const fx = r.removeSocket('u1', 's1')!;
+    expect(fx.notice).toMatch(/^Tuấn mất kết nối — bài sẽ dừng sau 20 giây/);
+    expect(r.stage.singerId).toBeNull();
+    expect(r.playback).toBe(song); // untouched
+    expect(r.queue.current?.singerAwayUntilMs).toBe(now + AWAY_GRACE_MS);
+  });
+
+  it('nobody keeps it: after 20 s the next song starts', () => {
+    const r = room();
+    r.removeSocket('u1', 's1');
+    expect(r.tick(now + AWAY_GRACE_MS - 1).notice).toBeUndefined();
+    const fx = r.tick(now + AWAY_GRACE_MS);
+    expect(fx.notice).toBe('Ca sĩ chưa quay lại — chuyển sang bài tiếp theo');
+    expect(r.playback.song?.title).toBe('Bài 2');
+  });
+
+  it('"Giữ bài" keeps the song (not the stage); then it runs to its normal end', () => {
+    const r = room();
+    r.removeSocket('u1', 's1');
+    expect(r.keepSong('u3')).toEqual({ ok: true, effects: { queue: true, notice: 'Khoa đã giữ bài — cả phòng hát tiếp' } });
+    expect(r.tick(now + AWAY_GRACE_MS * 3)).toMatchObject({ presence: true }); // Tuấn's grace ends, song goes on
+    expect(r.playback.song?.title).toBe('Bài 1');
+    expect(r.stage.singerId).toBeNull();
+    expect(r.keepSong('u3')).toEqual({ ok: false, error: 'Không có bài nào cần giữ' });
+  });
+
+  it('anyone can step up and finish the song', () => {
+    const r = room();
+    r.removeSocket('u1', 's1');
+    expect(r.takeStage('u3')).toMatchObject({ ok: true, effects: { notice: 'Khoa lên hát tiếp bài này' } });
+    expect(r.tick(now + AWAY_GRACE_MS).notice).toBeUndefined();
+    expect(r.playback.song?.title).toBe('Bài 1');
+  });
+
+  it('the singer back in time gets the stage again, if it is still free', () => {
+    const r = room();
+    r.removeSocket('u1', 's1');
+    expect(r.addSocket('u1', 'Tuấn', 's1b')).toMatchObject({ stage: true, notice: 'Tuấn đã kết nối lại' });
+    expect(r.stage.singerId).toBe('u1');
+    expect(r.tick(now + AWAY_GRACE_MS * 2)).toEqual({}); // no song stop
+  });
+
+  it('back too late to the stage: someone else is singing, so they just listen', () => {
+    const r = room();
+    r.removeSocket('u1', 's1');
+    r.takeStage('u3');
+    expect(r.addSocket('u1', 'Tuấn', 's1b')).toEqual({});
+    expect(r.stage.singerId).toBe('u3');
+  });
+
+  it('a queued singer who is away when their turn comes gets the same 20 s', () => {
+    const r = room();
+    r.removeSocket('u2', 's2'); // Thảo Vy drops while Tuấn sings
+    r.leaveStage('u1'); // Tuấn finishes: Thảo Vy's turn
+    expect(r.playback.song?.title).toBe('Bài 2');
+    expect(r.stage.singerId).toBeNull();
+    expect(r.queue.current?.singerAwayUntilMs).toBe(now + AWAY_GRACE_MS);
+  });
+
+  it("someone gone for good loses their queued songs", () => {
+    const r = room();
+    r.queue.add(yt(3), 'u3', 'Khoa', now);
+    r.removeSocket('u3', 's3');
+    r.tick(now + AWAY_GRACE_MS);
+    expect(r.queue.state().entries.map((e) => e.singerName)).toEqual(['Thảo Vy']);
   });
 });

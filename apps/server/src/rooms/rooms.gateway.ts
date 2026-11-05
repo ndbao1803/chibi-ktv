@@ -85,9 +85,9 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     if (client.data.roomCode !== room.code) leaveCurrentRoom(this.live, client);
     client.data.roomCode = room.code;
     await client.join(channel(room.code));
-    state.addSocket(user.id, user.displayName, client.id);
-    // A newcomer changes how many votes a skip needs.
-    this.live.apply(state, { presence: true, skip: state.refreshSkip() });
+    const back = state.addSocket(user.id, user.displayName, client.id);
+    // A newcomer changes how many votes a skip needs; a returning singer may get the stage back.
+    this.live.apply(state, { ...back, presence: true, skip: state.refreshSkip() });
     this.log.log(`${user.displayName} joined ${room.code}`);
     return { ok: true, room, playback: state.playback, stage: state.stage, queue: state.queue.state(), skip: state.skipState() };
   }
@@ -206,8 +206,20 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     const ctx = roomContext(this.live, client);
     if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
     const r = ctx.state.takeStage(ctx.user.id);
-    if (r.ok) this.live.emitStage(ctx.state);
-    return r;
+    if (!r.ok) return r;
+    this.live.apply(ctx.state, r.effects);
+    return { ok: true };
+  }
+
+  /** "Giữ bài" (R-09): the song keeps playing although its singer dropped. */
+  @SubscribeMessage(Events.turnKeep)
+  keepSong(@ConnectedSocket() client: KtvSocket): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const r = ctx.state.keepSong(ctx.user.id);
+    if (!r.ok) return r;
+    this.live.apply(ctx.state, r.effects);
+    return { ok: true };
   }
 
   @SubscribeMessage(Events.stageLeave)

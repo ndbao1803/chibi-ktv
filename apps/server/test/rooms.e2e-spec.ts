@@ -78,9 +78,17 @@ describe('Rooms + realtime presence (e2e)', () => {
     await sb.emitWithAck(Events.roomJoin, { code: room.code });
     expect((await seenByA).map((m) => m.displayName).sort()).toEqual(['Thảo Vy', 'Tuấn']);
 
+    // Closing the tab does not remove you at once: you stay "away" for 20 s (N-10).
     const afterLeave = once<PresenceList>(sa, Events.roomPresence);
     sb.close();
-    expect((await afterLeave).map((m) => m.displayName)).toEqual(['Tuấn']);
+    expect((await afterLeave).map((m) => [m.displayName, m.away]).sort()).toEqual([['Thảo Vy', true], ['Tuấn', false]]);
+
+    // Coming back in time keeps your place.
+    const sb2 = connect(b);
+    await once(sb2, 'connect');
+    const back = once<PresenceList>(sa, Events.roomPresence);
+    await sb2.emitWithAck(Events.roomJoin, { code: room.code });
+    expect((await back).map((m) => [m.displayName, m.away]).sort()).toEqual([['Thảo Vy', false], ['Tuấn', false]]);
   });
 
   it('rejects an unknown room code', async () => {
@@ -243,6 +251,29 @@ describe('Vote-skip (e2e, Q-07)', () => {
     expect(await b.emitWithAck(Events.skipVote, { vote: true })).toEqual({ ok: true });
     expect(await notice).toMatch(/^Cả phòng đã bỏ qua bài/);
     expect((await stopped).song).toBeNull(); // queue was empty: the room goes idle
+  });
+
+  it('the singer drops mid-song: the room is told, and a listener can keep the song going', async () => {
+    const ca = await signup('keep-singer@example.com', 'Ca sĩ');
+    const cb = await signup('keep-fan@example.com', 'Fan');
+    const code = ((await http.post('/api/rooms').set('Cookie', ca).send({})).body as RoomInfo).code;
+    const a = await connect(ca);
+    const b = await connect(cb);
+    await a.emitWithAck(Events.roomJoin, { code });
+    await b.emitWithAck(Events.roomJoin, { code });
+    expect(await b.emitWithAck(Events.turnKeep, {})).toEqual({ ok: false, error: 'Không có bài nào cần giữ' });
+
+    const started = once<PlaybackState>(b, Events.playState);
+    await a.emitWithAck(Events.queueAdd, { link: 'https://youtu.be/dQw4w9WgXcQ' });
+    await started;
+
+    const dropped = once<string>(b, 'room:notice');
+    a.close();
+    expect(await dropped).toMatch(/^Ca sĩ mất kết nối — bài sẽ dừng sau 20 giây/);
+
+    const kept = once<string>(b, 'room:notice');
+    expect(await b.emitWithAck(Events.turnKeep, {})).toEqual({ ok: true });
+    expect(await kept).toBe('Fan đã giữ bài — cả phòng hát tiếp');
   });
 
   it('rejects a malformed vote', async () => {
