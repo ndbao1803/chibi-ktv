@@ -123,6 +123,10 @@ export class RealtimeService implements OnDestroy {
   takeStage(): Promise<Ack> {
     return this.emit(Events.stageTake);
   }
+  /** R-11: sit somewhere else; everyone sees the walk once the server agrees. */
+  takeSeat(seat: number): Promise<Ack> {
+    return this.emit(Events.seatTake, { seat });
+  }
   leaveStage(): Promise<Ack> {
     return this.emit(Events.stageLeave);
   }

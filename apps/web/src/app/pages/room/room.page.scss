@@ -11,6 +11,13 @@
   .code { color: var(--gold); letter-spacing: 0.12em; }
   .row { display: flex; gap: 6px; }
   .small { padding: 6px 10px; font-size: 12px; }
+  .views { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chip {
+    padding: 4px 9px; font-size: 11.5px; border-radius: 999px; border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.04); color: var(--muted);
+  }
+  .chip[aria-pressed='true'] { color: var(--fg); border-color: var(--cyan); background: rgba(51, 225, 237, 0.12); }
+  .seat-hint { margin: 0; font-size: 11px; color: var(--muted); }
 }
 .side {
   top: calc(12px + env(safe-area-inset-top, 0px));

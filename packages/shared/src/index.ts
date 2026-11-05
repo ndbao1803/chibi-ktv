@@ -124,3 +124,4 @@ export * from './events.js';
 export * from './queue.js';
 export * from './turn.js';
 export * from './skip.js';
+export * from './seats.js';

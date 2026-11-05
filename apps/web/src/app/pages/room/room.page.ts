@@ -7,7 +7,18 @@ import { RealtimeService } from './realtime.service';
 import { VoiceService } from './voice/voice.service';
 import { AudioService } from './audio.service';
 import { PlayerPanel } from './player/player-panel';
-import { KtvScene } from './ktv-scene';
+import { KtvScene, type CameraView } from './ktv-scene';
+
+const LOW_POWER_KEY = 'ktv.lowPower';
+function readLowPower(): boolean {
+  try {
+    const saved = localStorage.getItem(LOW_POWER_KEY);
+    if (saved !== null) return saved === '1';
+  } catch {
+    /* storage blocked */
+  }
+  return matchMedia('(pointer: coarse)').matches;
+}
 
 @Component({
   selector: 'app-room-page',
@@ -42,9 +53,10 @@ export class RoomPage implements OnInit, OnDestroy {
 
   constructor() {
     // Whenever the member list or the singer changes, update the 3D room.
+    effect(() => this.scene?.setCapacity(this.rt.room()?.capacity ?? 8));
     effect(() => this.scene?.setMembers(this.rt.members(), this.auth.user()?.id));
-    effect(() => this.scene?.setSinger(this.rt.stage().singerId));
-    effect(() => this.scene?.drawScreen(this.rt.playback().song?.title ?? null, this.rt.stage().singerName));
+    effect(() => this.scene?.setStage(this.singerIds()));
+    effect(() => this.scene?.drawScreen(this.rt.playback().song?.title ?? null, this.singerNames()));
     effect(() => this.flash(this.rt.notice()));
     effect(() => this.flash(this.voice.error()));
   }
@@ -56,12 +68,19 @@ export class RoomPage implements OnInit, OnDestroy {
     if (new URLSearchParams(location.search).has('lite')) return;
     try {
       this.scene = new KtvScene(this.canvas().nativeElement);
-      this.scene.singerLevel = () => this.voice.singerLevel();
+      this.scene.levelOf = (id) => (id === this.rt.stage().singerId ? this.voice.singerLevel() : 0);
       this.scene.onLost = () => this.no3d.set(true);
+      this.scene.onSeatClick = (seat) => void this.changeSeat(seat);
+      this.scene.onSlow = () => {
+        this.lowPower.set(true);
+        this.flash('Máy hơi chậm: đã tắt bớt hiệu ứng trang trí để phòng mượt hơn.');
+      };
+      if (this.lowPower()) this.scene.setLowPower(true);
       // Effects that ran before the scene existed: draw the current room now.
+      this.scene.setCapacity(this.rt.room()?.capacity ?? 8);
+      this.scene.setStage(this.singerIds());
       this.scene.setMembers(this.rt.members(), this.auth.user()?.id);
-      this.scene.setSinger(this.rt.stage().singerId);
-      this.scene.drawScreen(this.rt.playback().song?.title ?? null, this.rt.stage().singerName);
+      this.scene.drawScreen(this.rt.playback().song?.title ?? null, this.singerNames());
     } catch (e) {
       console.warn('3D room unavailable, continuing without it', e);
       this.scene = undefined;
@@ -79,6 +98,40 @@ export class RoomPage implements OnInit, OnDestroy {
   /** R-03: the click that allows sound in this tab. */
   async enter() {
     await this.audio.unlock();
+  }
+
+  /** Who stands on the stage (one now; two for duets in Phase 4). */
+  private readonly singerIds = computed(() => (this.rt.stage().singerId ? [this.rt.stage().singerId!] : []), {
+    equal: (a, b) => a.join() === b.join(),
+  });
+  private readonly singerNames = computed(() => (this.rt.stage().singerName ? [this.rt.stage().singerName!] : []), {
+    equal: (a, b) => a.join() === b.join(),
+  });
+
+  /** R-11: walk to a free seat. The server decides; if someone was faster, say so. */
+  private async changeSeat(seat: number) {
+    const ack = await this.rt.takeSeat(seat);
+    if (!ack.ok) this.flash(ack.error);
+  }
+
+  /** Camera presets (Phase 3). */
+  protected readonly view = signal<CameraView>('all');
+  setView(v: CameraView) {
+    this.view.set(v);
+    this.scene?.setView(v);
+  }
+
+  /** RD-05: fewer decorations on slow devices. Remembered in this browser; phones start with it on. */
+  protected readonly lowPower = signal(readLowPower());
+  toggleLowPower() {
+    const on = !this.lowPower();
+    this.lowPower.set(on);
+    this.scene?.setLowPower(on);
+    try {
+      localStorage.setItem(LOW_POWER_KEY, on ? '1' : '0');
+    } catch {
+      /* storage blocked: fine, it just is not remembered */
+    }
   }
 
   /** My song was queued. The first time, ask about headphones so the mic can start by itself (S-02). */

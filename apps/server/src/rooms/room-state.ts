@@ -1,4 +1,5 @@
 import {
+  firstFreeSeat,
   EMPTY_PLAYBACK,
   expectedPosition,
   msUntilSongEnd,
@@ -27,6 +28,8 @@ interface Member {
   /** All tabs closed (network drop, page reload): still counted, until `awayUntilMs`. */
   away: boolean;
   awayUntilMs: number | null;
+  /** Seat number (R-04); kept while away or on stage, freed when they leave for good (R-13). */
+  seat: number | null;
 }
 
 /** What changed, so the caller (`RoomLiveService`) knows exactly what to broadcast. */
@@ -54,6 +57,8 @@ export class RoomState {
   /** The skip numbers last broadcast, so we only send `skip:state` when they really change. */
   private lastSkipKey = '0/1/';
   private skipRev = 0;
+  /** Number of seats in use: 8 or 16, from the room settings (set on every join). */
+  capacity = 16;
 
   constructor(
     readonly code: string,
@@ -68,7 +73,14 @@ export class RoomState {
    */
   addSocket(userId: string, displayName: string, socketId: string): Effects {
     const existing = this.members.get(userId);
-    const m = existing ?? { displayName, sockets: new Set<string>(), joinedAt: this.now(), away: false, awayUntilMs: null };
+    const m: Member = existing ?? {
+      displayName,
+      sockets: new Set<string>(),
+      joinedAt: this.now(),
+      away: false,
+      awayUntilMs: null,
+      seat: firstFreeSeat(this.takenSeats(), this.capacity),
+    };
     m.sockets.add(socketId);
     this.members.set(userId, m);
     if (!existing?.away) return {};
@@ -126,7 +138,29 @@ export class RoomState {
   presence(): PresenceList {
     return [...this.members.entries()]
       .sort((a, b) => a[1].joinedAt - b[1].joinedAt)
-      .map(([userId, m]) => ({ userId, displayName: m.displayName, away: m.away }));
+      .map(([userId, m]) => ({ userId, displayName: m.displayName, away: m.away, seat: m.seat }));
+  }
+
+  /* ----- seats (R-11..R-13) ----- */
+
+  private takenSeats(): Set<number> {
+    return new Set([...this.members.values()].flatMap((m) => (m.seat === null ? [] : [m.seat])));
+  }
+
+  /**
+   * Move to another seat. The server handles one message at a time, so when two people click the
+   * same free seat, the first message wins and the second is told (R-13).
+   */
+  takeSeat(userId: string, seat: number): { ok: true; effects: Effects } | { ok: false; error: string } {
+    const m = this.members.get(userId);
+    if (!m) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    if (seat >= this.capacity) return { ok: false, error: 'Phòng này không có ghế đó' };
+    if (m.seat === seat) return { ok: true, effects: {} };
+    for (const [id, other] of this.members) {
+      if (id !== userId && other.seat === seat) return { ok: false, error: `${other.displayName} vừa ngồi vào ghế này` };
+    }
+    m.seat = seat;
+    return { ok: true, effects: { presence: true } };
   }
 
   /* ----- playback ----- */

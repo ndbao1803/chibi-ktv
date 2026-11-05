@@ -1,53 +1,63 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { PresenceList } from '@ktv/shared';
+import { Chibi, SHARED_GEOMETRY } from './scene/chibi';
+import { basic, C, disposeTree, label, mesh, REDUCED_MOTION } from './scene/kit';
+import { RoomDecor } from './scene/room-decor';
+import { SEATS, seatRoute, STAGE, stageRoute, stageSlot } from './scene/seats';
 
-/**
- * The 3D karaoke room, in plain Three.js (no Angular inside), ported from the
- * design prototype. The page creates it with a canvas and tells it who is in the room.
- */
-const C = { pink: 0xff3fa4, cyan: 0x33e1ed, gold: 0xf2c14e, wine: 0x6e1a37 };
-const SKIN = [0xffd9c0, 0xf6c9a5, 0xe8b48f];
-const HAIR = [0x1b1418, 0x3a2418, 0x5a2a1a, 0x141420, 0x7a4a2a];
-const OUTFIT = [0x3a7bd5, 0xff7eb6, 0x4fbf8f, 0x9b6bff, 0xe2543d, 0x33c4d6, 0xf2a93b, 0xff3fa4];
+export type CameraView = 'all' | 'stage' | 'me';
 
-// 8 sofa seats, then 8 standing spots behind the sofa for 16-person rooms.
-const SPOTS: [number, number, number, boolean][] = [
-  // Side seats first: from the default camera you see their faces, not the backs of their heads.
-  [-4.45, 0.4, Math.PI / 2, true], [4.45, 0.4, -Math.PI / 2, true], [-4.45, 2.0, Math.PI / 2, true], [4.45, 2.0, -Math.PI / 2, true],
-  [-0.95, 3.25, Math.PI, true], [0.95, 3.25, Math.PI, true], [-2.85, 3.25, Math.PI, true], [2.85, 3.25, Math.PI, true],
-  ...[-3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5].map((x) => [x, 4.5, Math.PI, false] as [number, number, number, boolean]),
-];
-
-interface Chibi {
-  root: THREE.Group;
-  head: THREE.Group;
-  mouth: THREE.Mesh;
-  legs: THREE.Group[];
-  arms: THREE.Group[];
-  spot: number;
-  phase: number;
-  disposables: { dispose(): void }[];
-  away?: boolean;
+interface SeatMarker {
+  group: THREE.Group;
+  ring: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>;
+  hit: THREE.Mesh;
+  owner?: THREE.Sprite;
+  ownerName?: string;
 }
 
-const STAGE = new THREE.Vector3(0, 0.3, -3.1);
+const VIEWS: Record<Exclude<CameraView, 'me'> | 'all16', [THREE.Vector3, THREE.Vector3]> = {
+  all: [new THREE.Vector3(0, 5.4, 7.8), new THREE.Vector3(0, 1.0, -1.8)],
+  // Rooms of 16: higher and further back, so the bar-stool row does not block the stage.
+  all16: [new THREE.Vector3(0, 7.6, 10.6), new THREE.Vector3(0, 0.6, -1.4)],
+  stage: [new THREE.Vector3(0, 1.8, 0.6), new THREE.Vector3(0, 1.1, -3.1)],
+};
 
+/**
+ * The 3D karaoke room (plain Three.js, no Angular inside), ported from the design prototype.
+ * The page tells it who is in the room, where they sit and who is on stage; it animates the rest.
+ * Pieces: `scene/room-decor.ts` (the room), `scene/chibi.ts` (avatars), `scene/seats.ts` (layout + walks).
+ */
 export class KtvScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
   private readonly controls: OrbitControls;
   private readonly timer = new THREE.Timer();
-  private readonly chibis = new Map<string, Chibi>();
-  private readonly disco = new THREE.Group();
+  private readonly decor = new RoomDecor();
+  private readonly chibis = new Map<string, { c: Chibi; seat: number | null }>();
+  private readonly markers: SeatMarker[] = [];
   private readonly resize = new ResizeObserver(() => this.fit());
+  private readonly ray = new THREE.Raycaster();
   private frame = 0;
-  private singerId: string | null = null;
-  private screen!: THREE.CanvasTexture;
-  /** Loudness of the singer's voice (0..1), read every frame for the mouth (A-04). */
-  singerLevel: () => number = () => 0;
+  private capacity = 8;
+  private meId: string | undefined;
+  private stageIds: string[] = [];
+  private view: CameraView = 'all';
+  private camGoal: { pos: THREE.Vector3; tgt: THREE.Vector3 } | null = null;
+  private downAt: { x: number; y: number } | null = null;
+  private lowPower = false;
+  private slow = { frames: 0, time: 0, strikes: 0 };
+  private readonly pixelRatio: number;
 
+  /** Voice loudness (0..1) of a singer, for their mouth (A-04). */
+  levelOf: (userId: string) => number = () => 0;
+  /** Talking loudness (0..1) of anyone, for the speaking ring (VC-07). */
+  talkOf: (userId: string) => number = () => 0;
+  /** I clicked a free seat (R-11); the page asks the server, and the walk starts when it agrees. */
+  onSeatClick: (seat: number) => void = () => {};
+  /** The frame rate stayed low, so the extra effects were switched off (RD-05). */
+  onSlow: () => void = () => {};
   /** Called if the browser takes the 3D context away later (GPU reset, too many tabs). */
   onLost: () => void = () => {};
 
@@ -57,144 +67,220 @@ export class KtvScene {
     // Phones: skip antialiasing, it is the most GPU-hungry setting and the chibis are flat-shaded anyway.
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !coarse, powerPreference: 'low-power' });
     canvas.addEventListener('webglcontextlost', this.contextLost, false);
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, coarse ? 1.5 : 2));
+    this.pixelRatio = Math.min(devicePixelRatio || 1, coarse ? 1.5 : 2);
+    this.renderer.setPixelRatio(this.pixelRatio);
     this.scene.background = new THREE.Color(0x0b0912);
-    this.scene.fog = new THREE.Fog(0x0b0912, 14, 26);
-    this.camera.position.set(0, 5.4, 7.8);
+    this.scene.fog = new THREE.Fog(0x0b0912, 18, 32);
+    this.camera.position.copy(VIEWS.all[0]);
     this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.target.set(0, 1, -1.8);
+    this.controls.target.copy(VIEWS.all[1]);
     this.controls.enableDamping = true;
     this.controls.enablePan = false;
     this.controls.maxPolarAngle = Math.PI * 0.49;
-    this.controls.minDistance = 3;
-    this.controls.maxDistance = 15;
-    this.buildRoom();
+    this.controls.minDistance = 2;
+    this.controls.maxDistance = 17;
+    this.controls.addEventListener('start', () => (this.camGoal = null)); // dragging cancels a preset glide
+    this.scene.add(this.decor.root);
+    this.buildMarkers();
+    this.setCapacity(8);
+    canvas.addEventListener('pointerdown', this.pointerDown);
+    canvas.addEventListener('pointerup', this.pointerUp);
+    canvas.addEventListener('pointermove', this.pointerMove);
     this.resize.observe(canvas);
     this.fit();
     this.loop();
   }
 
-  /** Adds chibis for new members and removes those who left. */
+  /* ---------- what the page tells the room ---------- */
+
+  setCapacity(capacity: number) {
+    const changed = this.capacity !== capacity;
+    this.capacity = capacity;
+    if (changed && this.view === 'all') this.setView('all');
+    this.decor.setCapacity(capacity);
+    this.refreshMarkers();
+  }
+
+  /** Adds chibis for new members, removes those who left, walks those who changed seats (R-12). */
   setMembers(members: PresenceList, meId: string | undefined) {
+    this.meId = meId;
     const ids = new Set(members.map((m) => m.userId));
-    for (const [id, c] of this.chibis) {
-      if (!ids.has(id)) {
-        this.scene.remove(c.root);
-        c.disposables.forEach((d) => d.dispose());
-        this.chibis.delete(id);
-      }
+    for (const [id, entry] of this.chibis) {
+      if (ids.has(id)) continue;
+      entry.c.dispose();
+      this.chibis.delete(id);
     }
-    const taken = new Set([...this.chibis.values()].map((c) => c.spot));
     members.forEach((m, i) => {
-      const have = this.chibis.get(m.userId);
-      if (have) {
-        this.dim(have, m.away);
-        return;
+      let entry = this.chibis.get(m.userId);
+      if (!entry) {
+        entry = { c: new Chibi(m.displayName, m.userId === meId, i), seat: m.seat };
+        entry.c.level = () => this.levelOf(m.userId);
+        entry.c.talking = () => this.talkOf(m.userId);
+        this.chibis.set(m.userId, entry);
+        this.scene.add(entry.c.root);
+        if (m.seat !== null) entry.c.sitAt(SEATS[m.seat]);
+        const slot = this.stageIds.indexOf(m.userId);
+        if (slot >= 0) entry.c.standOnStage(this.slotSpot(slot));
+        entry.c.root.visible = m.seat !== null || slot >= 0;
+      } else if (m.seat !== entry.seat && m.seat !== null) {
+        const from = entry.seat;
+        entry.seat = m.seat;
+        entry.c.home = SEATS[m.seat];
+        entry.c.root.visible = true;
+        // On stage they keep singing; they walk to the new seat when they come down.
+        if (!entry.c.onStage) {
+          if (from === null) entry.c.sitAt(SEATS[m.seat]);
+          else entry.c.walk(seatRoute(from, m.seat), 'seated');
+        }
       }
-      const spot = SPOTS.findIndex((_, k) => !taken.has(k));
-      if (spot < 0) return;
-      taken.add(spot);
-      const c = this.makeChibi(m.displayName, m.userId === meId, i, spot);
-      this.scene.add(c.root);
-      this.chibis.set(m.userId, c);
-      this.place(m.userId, c);
-      this.dim(c, m.away);
+      entry.c.setAway(m.away);
     });
+    this.refreshMarkers();
   }
 
-  /** N-12: someone mid-reconnect is shown see-through until they are back. */
-  private dim(c: Chibi, away: boolean) {
-    if ((c.away ?? false) === away) return;
-    c.away = away;
-    c.root.traverse((o) => {
-      const mat = (o as THREE.Mesh).material;
-      if (!mat || Array.isArray(mat)) return;
-      // Remember each material's own look (name tags are already see-through) and restore it.
-      mat.userData['base'] ??= { transparent: mat.transparent, opacity: mat.opacity };
-      const base = mat.userData['base'] as { transparent: boolean; opacity: number };
-      mat.transparent = away || base.transparent;
-      mat.opacity = away ? base.opacity * 0.35 : base.opacity;
-      mat.needsUpdate = true;
-    });
-  }
-
-  /**
-   * The 3D TV is decoration only (the real video is the flat panel, P-04): it shows the song title
-   * and who is singing.
-   */
-  drawScreen(title: string | null, singer: string | null) {
-    const c = this.screen.image as HTMLCanvasElement;
-    const g = c.getContext('2d')!;
-    const grd = g.createLinearGradient(0, 0, 1024, 576);
-    grd.addColorStop(0, '#3a0d33');
-    grd.addColorStop(1, '#071c27');
-    g.fillStyle = grd;
-    g.fillRect(0, 0, 1024, 576);
-    g.textAlign = 'center';
-    g.shadowColor = '#ff3fa4';
-    g.shadowBlur = 30;
-    g.fillStyle = '#ffd1e9';
-    if (title) {
-      g.font = '700 64px "Be Vietnam Pro", sans-serif';
-      let t = title;
-      while (g.measureText(t).width > 920 && t.length > 4) t = t.slice(0, -2);
-      g.fillText(t === title ? t : t + '…', 512, 250);
-    } else {
-      g.font = '110px Bungee, Impact, sans-serif';
-      g.fillText('CHIBI KTV', 512, 270);
+  /** Who is on stage, in order (one singer, or two for a duet: S-12). They walk up; others walk back (S-01). */
+  setStage(singerIds: string[]) {
+    const before = this.stageIds;
+    this.stageIds = [...singerIds];
+    for (const [id, { c, seat }] of this.chibis) {
+      const slot = this.stageIds.indexOf(id);
+      if (slot >= 0) {
+        const spot = this.slotSpot(slot);
+        if (c.onStage) c.shiftOnStage(spot);
+        else if (seat === null) c.standOnStage(spot);
+        else c.walk(stageRoute(seat, spot), 'stage', spot);
+        c.root.visible = true;
+      } else if (before.includes(id) && c.onStage && seat !== null) {
+        const route = [{ x: SEATS[seat].x, z: SEATS[seat].z }, ...stageRoute(seat, stageSlot(0, 1))].reverse().slice(1);
+        c.walk(route, 'seated');
+      }
     }
-    g.shadowBlur = 0;
-    g.font = '600 36px "Be Vietnam Pro", sans-serif';
-    g.fillStyle = 'rgba(255,255,255,.8)';
-    g.fillText(singer ? `🎤 ${singer} đang hát` : title ? 'Ai lên hát nào?' : 'Chờ bài hát đầu tiên…', 512, 350);
-    this.screen.needsUpdate = true;
+    this.decor.setStageBeams(this.stageIds.map((_, i) => stageSlot(i, this.stageIds.length)));
+    this.refreshMarkers();
   }
 
-  /** Moves the singer to the stage, standing and facing the room; everyone else back to their seat. */
-  setSinger(userId: string | null) {
-    this.singerId = userId;
-    for (const [id, c] of this.chibis) this.place(id, c);
+  drawScreen(title: string | null, singerNames: string[]) {
+    this.decor.drawScreen(title, singerNames);
   }
 
-  private place(id: string, c: Chibi) {
-    const onStage = id === this.singerId;
-    (c.root.userData['mic'] as THREE.Group).visible = onStage;
-    const [x, z, rot, seated] = SPOTS[c.spot];
-    if (onStage) {
-      c.root.position.copy(STAGE);
-      c.root.rotation.y = 0;
+  /** Camera presets: the whole room, close on the stage, or from my own seat. */
+  setView(view: CameraView) {
+    this.view = view;
+    const me = this.meId ? this.chibis.get(this.meId) : undefined;
+    if (view === 'me' && me?.seat != null) {
+      const s = SEATS[me.seat];
+      const back = { x: -Math.sin(s.rot), z: -Math.cos(s.rot) };
+      this.camGoal = {
+        pos: new THREE.Vector3(s.x + back.x * 1.1, s.y + 2.1, s.z + back.z * 1.1),
+        tgt: new THREE.Vector3(STAGE.x, 1.1, STAGE.z),
+      };
     } else {
-      c.root.position.set(x, seated ? 0.15 : 0, z);
-      c.root.rotation.y = rot;
+      const key = view === 'stage' ? 'stage' : this.capacity > 8 ? 'all16' : 'all';
+      const [pos, tgt] = VIEWS[key];
+      this.camGoal = { pos: pos.clone(), tgt: tgt.clone() };
     }
-    const sitting = seated && !onStage;
-    c.legs.forEach((l) => (l.rotation.x = sitting ? -Math.PI / 2 : 0));
-    // On stage the right arm holds the mic up.
-    c.arms[1].rotation.set(onStage ? -2.35 : -0.55, 0, onStage ? -0.35 : 0.12);
-    c.mouth.scale.set(1, 1, 1);
+  }
+
+  /** RD-05: fewer effects and a lower resolution, for phones that cannot hold 30 fps. */
+  setLowPower(on: boolean) {
+    this.lowPower = on;
+    this.decor.setLowPower(on);
+    this.renderer.setPixelRatio(on ? 1 : this.pixelRatio);
+    this.fit();
   }
 
   dispose() {
     cancelAnimationFrame(this.frame);
     this.canvas.removeEventListener('webglcontextlost', this.contextLost, false);
+    this.canvas.removeEventListener('pointerdown', this.pointerDown);
+    this.canvas.removeEventListener('pointerup', this.pointerUp);
+    this.canvas.removeEventListener('pointermove', this.pointerMove);
     this.resize.disconnect();
     this.controls.dispose();
-    this.scene.traverse((o) => {
-      const m = o as THREE.Mesh;
-      m.geometry?.dispose();
-      const mats = Array.isArray(m.material) ? m.material : m.material ? [m.material] : [];
-      mats.forEach((mat) => {
-        (mat as THREE.MeshBasicMaterial).map?.dispose();
-        mat.dispose();
-      });
-    });
+    for (const { c } of this.chibis.values()) c.dispose();
+    disposeTree(this.scene, SHARED_GEOMETRY);
+    SHARED_GEOMETRY.forEach((g) => g.dispose());
     this.renderer.dispose();
     // Give the GPU context back right away. Without this, entering and leaving rooms piles up
     // contexts until the browser starts killing them and then blocks 3D for the whole site.
     this.renderer.forceContextLoss();
   }
 
+  /* ---------- seats you can click (R-11) ---------- */
+
+  private buildMarkers() {
+    const freeLabel = label('Ghế trống · bấm để ngồi', 'hint');
+    const ringGeo = new THREE.TorusGeometry(0.34, 0.03, 6, 28), hitGeo = new THREE.BoxGeometry(1.1, 1.2, 1.1);
+    const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+    SEATS.forEach((s, i) => {
+      const group = new THREE.Group();
+      group.position.set(s.x, 0, s.z);
+      this.scene.add(group);
+      const ring = mesh(ringGeo, basic(C.cyan, { transparent: true, opacity: 0.8 }), 0, s.y + 0.33, 0, group);
+      ring.rotation.x = Math.PI / 2;
+      const tag = new THREE.Sprite(freeLabel.material); // one texture shared by every free seat
+      tag.scale.copy(freeLabel.scale);
+      tag.position.y = s.y + 1.0;
+      tag.renderOrder = 10;
+      group.add(tag);
+      const hit = mesh(hitGeo, hitMat, s.x, s.y + 0.45, s.z, this.scene);
+      hit.userData['seat'] = i;
+      this.markers.push({ group, ring, hit });
+    });
+  }
+
+  private refreshMarkers() {
+    const owners = new Map<number, string>();
+    for (const [id, { c, seat }] of this.chibis) if (seat !== null) owners.set(seat, id);
+    this.markers.forEach((m, i) => {
+      const owner = owners.get(i);
+      const free = i < this.capacity && owner === undefined;
+      m.group.visible = free;
+      m.hit.visible = free;
+      // R-13: the seat of someone on stage is kept for them, and says so.
+      const holder = owner ? this.chibis.get(owner) : undefined;
+      const reserved = holder?.c.onStage ? holder.c.name : '';
+      if (reserved && m.ownerName !== reserved) {
+        m.owner?.removeFromParent();
+        (m.owner?.material as THREE.SpriteMaterial | undefined)?.map?.dispose();
+        m.owner = label(`Ghế của ${reserved}`, 'other');
+        m.owner.material.opacity = 0.6;
+        m.owner.position.set(SEATS[i].x, SEATS[i].y + 0.95, SEATS[i].z);
+        this.scene.add(m.owner);
+        m.ownerName = reserved;
+      }
+      if (m.owner) m.owner.visible = !!reserved;
+    });
+  }
+
+  private seatUnder(e: PointerEvent): number | null {
+    const r = this.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    this.ray.setFromCamera(ndc, this.camera);
+    const hits = this.ray.intersectObjects(this.markers.filter((m) => m.hit.visible).map((m) => m.hit));
+    return hits.length ? (hits[0].object.userData['seat'] as number) : null;
+  }
+
+  private pointerDown = (e: PointerEvent) => (this.downAt = { x: e.clientX, y: e.clientY });
+  private pointerUp = (e: PointerEvent) => {
+    if (!this.downAt) return;
+    const moved = Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y);
+    this.downAt = null;
+    if (moved > 6) return; // that was a camera drag, not a click
+    const seat = this.seatUnder(e);
+    if (seat !== null) this.onSeatClick(seat);
+  };
+  private pointerMove = (e: PointerEvent) => {
+    if (e.buttons) return;
+    this.canvas.style.cursor = this.seatUnder(e) !== null ? 'pointer' : '';
+  };
+
   /* ---------- internals ---------- */
+
+  private slotSpot(index: number) {
+    const s = stageSlot(index, this.stageIds.length);
+    return { ...s, y: STAGE.y };
+  }
 
   private contextLost = (e: Event) => {
     e.preventDefault();
@@ -211,219 +297,42 @@ export class KtvScene {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Two slow 4-second windows in a row (under ~28 fps) switch the extras off once (RD-05, N-04). */
+  private watchSpeed(dt: number) {
+    if (this.lowPower || document.hidden) return;
+    this.slow.frames++;
+    this.slow.time += dt;
+    if (this.slow.time < 4) return;
+    const fps = this.slow.frames / this.slow.time;
+    this.slow = { frames: 0, time: 0, strikes: fps < 28 ? this.slow.strikes + 1 : 0 };
+    if (this.slow.strikes >= 2) {
+      this.setLowPower(true);
+      this.onSlow();
+    }
+  }
+
   private loop = () => {
     this.frame = requestAnimationFrame(this.loop);
     this.timer.update();
-    const t = this.timer.getElapsed();
-    this.controls.update();
-    this.disco.rotation.y = t * 0.35;
-    for (const [id, c] of this.chibis) {
-      const beat = Math.sin(t * Math.PI * 2 * 0.9 + c.phase);
-      c.head.rotation.z = beat * 0.06;
-      c.head.position.y = 0.72 + Math.abs(beat) * 0.02;
-      if (id === this.singerId) {
-        const level = this.singerLevel();
-        c.mouth.scale.set(1 - level * 0.2, 1 + level * 4, 1);
-        c.root.rotation.z = Math.sin(t * 2.2) * 0.03;
-      }
+    const raw = this.timer.getDelta(), t = this.timer.getElapsed();
+    // Capped so a hidden tab coming back does not jump, but loose enough for slow phones to keep walking.
+    const dt = Math.min(0.2, raw);
+    if (raw < 1) this.watchSpeed(raw);
+    if (this.camGoal) {
+      const k = 1 - Math.pow(0.02, dt);
+      this.camera.position.lerp(this.camGoal.pos, k);
+      this.controls.target.lerp(this.camGoal.tgt, k);
+      if (this.camera.position.distanceTo(this.camGoal.pos) < 0.02) this.camGoal = null;
     }
+    this.controls.update();
+    this.decor.setCameraHeight(this.camera.position.y);
+    this.decor.update(t, dt, 0, REDUCED_MOTION);
+    for (const [id, { c }] of this.chibis) {
+      c.update(t, dt);
+      c.scaleTag(this.camera.position.distanceTo(c.root.position), !(this.view === 'me' && id === this.meId));
+    }
+    const pulse = 0.45 + Math.sin(t * 4) * 0.35;
+    for (const m of this.markers) if (m.group.visible) m.ring.material.opacity = pulse;
     this.renderer.render(this.scene, this.camera);
   };
-
-  private mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0, parent: THREE.Object3D = this.scene) {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z);
-    parent.add(m);
-    return m;
-  }
-  private std(color: number, extra: THREE.MeshStandardMaterialParameters = {}) {
-    return new THREE.MeshStandardMaterial({ color, roughness: 0.75, flatShading: true, ...extra });
-  }
-  private basic(color: number, extra: THREE.MeshBasicMaterialParameters = {}) {
-    return new THREE.MeshBasicMaterial({ color, ...extra });
-  }
-  private canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    draw(c.getContext('2d')!);
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
-  }
-
-  private buildRoom() {
-    const s = this.scene;
-    s.add(new THREE.HemisphereLight(0x8a7ab8, 0x2a1830, 2.2));
-    s.add(new THREE.AmbientLight(0x3a2f4a, 1.4));
-    const pink = new THREE.PointLight(C.pink, 9, 14, 1);
-    pink.position.set(-5, 3.8, -3);
-    const cyan = new THREE.PointLight(C.cyan, 8, 14, 1);
-    cyan.position.set(5, 3.8, -3);
-    const warm = new THREE.PointLight(0xffb070, 5, 9, 1);
-    warm.position.set(0, 3.2, 2.2);
-    s.add(pink, cyan, warm);
-
-    // Concrete walls with form-tie dots (industrial ICOOL-inspired look).
-    const concrete = this.canvasTexture(512, 256, (g) => {
-      g.fillStyle = '#2b2833';
-      g.fillRect(0, 0, 512, 256);
-      for (let i = 0; i < 4000; i++) {
-        const v = (30 + Math.random() * 30) | 0;
-        g.fillStyle = `rgba(${v + 10},${v},${v + 18},.35)`;
-        g.fillRect(Math.random() * 512, Math.random() * 256, 2, 2);
-      }
-      g.fillStyle = 'rgba(0,0,0,.45)';
-      for (let x = 32; x < 512; x += 64) for (let y = 32; y < 256; y += 64) { g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill(); }
-    });
-    concrete.wrapS = concrete.wrapT = THREE.RepeatWrapping;
-    concrete.repeat.set(3, 2);
-    const wall = new THREE.MeshStandardMaterial({ map: concrete, roughness: 0.95 });
-    this.mesh(new THREE.PlaneGeometry(16, 5), wall, 0, 2.5, -5);
-    this.mesh(new THREE.PlaneGeometry(12, 5), wall, -8, 2.5, 1).rotation.y = Math.PI / 2;
-    this.mesh(new THREE.PlaneGeometry(12, 5), wall, 8, 2.5, 1).rotation.y = -Math.PI / 2;
-    const carpet = this.canvasTexture(256, 256, (g) => {
-      g.fillStyle = '#1a1222';
-      g.fillRect(0, 0, 256, 256);
-      for (let x = 0; x < 256; x += 32)
-        for (let y = 0; y < 256; y += 32) {
-          g.fillStyle = (x + y) % 64 ? 'rgba(255,63,164,.08)' : 'rgba(51,225,237,.06)';
-          g.beginPath(); g.moveTo(x + 16, y); g.lineTo(x + 32, y + 16); g.lineTo(x + 16, y + 32); g.lineTo(x, y + 16); g.fill();
-        }
-    });
-    carpet.wrapS = carpet.wrapT = THREE.RepeatWrapping;
-    carpet.repeat.set(4, 3);
-    this.mesh(new THREE.PlaneGeometry(16, 12), new THREE.MeshStandardMaterial({ map: carpet, roughness: 1 }), 0, 0, 1).rotation.x = -Math.PI / 2;
-
-    // Neon strips.
-    this.mesh(new THREE.BoxGeometry(15.6, 0.06, 0.06), this.basic(C.pink), 0, 4.6, -4.95);
-    this.mesh(new THREE.BoxGeometry(0.06, 0.06, 11.6), this.basic(C.cyan), -7.95, 4.6, 1);
-    this.mesh(new THREE.BoxGeometry(0.06, 0.06, 11.6), this.basic(C.cyan), 7.95, 4.6, 1);
-
-    // TV wall: gold frame and an idle screen (the real YouTube player is a flat panel, not in 3D).
-    this.mesh(new THREE.BoxGeometry(5.8, 3.4, 0.16), this.std(0x050407), 0, 2.6, -4.9);
-    const gold = this.basic(C.gold);
-    this.mesh(new THREE.BoxGeometry(5.9, 0.07, 0.06), gold, 0, 4.38, -4.88);
-    this.mesh(new THREE.BoxGeometry(5.9, 0.07, 0.06), gold, 0, 0.82, -4.88);
-    this.screen = this.canvasTexture(1024, 576, () => {});
-    this.drawScreen(null, null);
-    this.mesh(new THREE.PlaneGeometry(5.5, 3.1), this.basic(0xffffff, { map: this.screen }), 0, 2.6, -4.81);
-    for (const x of [-3.7, 3.7]) this.mesh(new THREE.BoxGeometry(0.9, 2.6, 0.7), this.std(0x111015), x, 1.3, -4.4);
-
-    // Stage with neon ring and spotlight beam.
-    this.mesh(new THREE.CylinderGeometry(1.5, 1.6, 0.3, 40), this.std(0x141019, { roughness: 0.3, metalness: 0.3, flatShading: false }), 0, 0.15, -3.1);
-    this.mesh(new THREE.TorusGeometry(1.52, 0.035, 8, 64), this.basic(C.pink), 0, 0.3, -3.1).rotation.x = Math.PI / 2;
-    this.mesh(
-      new THREE.ConeGeometry(1.3, 4.6, 32, 1, true),
-      this.basic(0xfff1d6, { transparent: true, opacity: 0.06, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
-      0, 2.6, -3.1,
-    );
-    const spot = new THREE.SpotLight(0xfff1d6, 30, 12, 0.42, 0.55, 1);
-    spot.position.set(0, 4.9, -2.4);
-    spot.target.position.set(0, 0.3, -3.1);
-    s.add(spot, spot.target);
-
-    // Disco ball.
-    this.disco.position.set(0, 4.6, -0.3);
-    s.add(this.disco);
-    this.mesh(new THREE.IcosahedronGeometry(0.28, 1), this.std(0xe8e8f0, { metalness: 0.3, roughness: 0.2, emissive: 0x2a2a3a }), 0, 0, 0, this.disco);
-
-    // Wine velvet U-sofa with gold piping, and the table with a fruit plate.
-    const velvet = this.std(C.wine, { roughness: 0.9 });
-    const sofa = (len: number, x: number, z: number, rotY: number) => {
-      const g = new THREE.Group();
-      g.position.set(x, 0, z);
-      g.rotation.y = rotY;
-      s.add(g);
-      this.mesh(new THREE.BoxGeometry(len, 0.45, 0.95), velvet, 0, 0.225, 0, g);
-      this.mesh(new THREE.BoxGeometry(len, 0.9, 0.28), velvet, 0, 0.6, 0.46, g);
-      this.mesh(new THREE.BoxGeometry(len, 0.03, 0.03), gold, 0, 1.06, 0.33, g);
-    };
-    sofa(7.6, 0, 3.4, 0);
-    sofa(3.4, -4.6, 1.2, -Math.PI / 2);
-    sofa(3.4, 4.6, 1.2, Math.PI / 2);
-    this.mesh(new THREE.BoxGeometry(3.4, 0.4, 1.4), this.std(0x0f0c14, { roughness: 0.25, metalness: 0.3, flatShading: false }), 0, 0.2, 1.25);
-    this.mesh(new THREE.CylinderGeometry(0.42, 0.32, 0.06, 24), this.std(0xf4f0ea), -0.4, 0.45, 1.25);
-    [0xff6b3d, 0x7ccf4b, 0xf7d33a, 0xd93a5a].forEach((c, i) =>
-      this.mesh(new THREE.SphereGeometry(0.09, 10, 8), this.std(c), -0.55 + (i % 2) * 0.25, 0.53, 1.15 + Math.floor(i / 2) * 0.2),
-    );
-  }
-
-  private nameTag(text: string, me: boolean) {
-    const tex = this.canvasTexture(256, 64, (g) => {
-      g.font = '600 30px "Be Vietnam Pro", sans-serif';
-      const tw = Math.min(250, g.measureText(text).width + 28);
-      g.fillStyle = me ? 'rgba(242,193,78,.95)' : 'rgba(20,14,30,.85)';
-      g.beginPath();
-      g.roundRect((256 - tw) / 2, 8, tw, 48, 24);
-      g.fill();
-      g.fillStyle = me ? '#241a05' : '#f4effa';
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.fillText(text, 128, 33);
-    });
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-    sprite.scale.set(0.9, 0.225, 1);
-    sprite.renderOrder = 10;
-    return sprite;
-  }
-
-  /** Big head, small body: the chibi spec from the design (A-01). */
-  private makeChibi(name: string, me: boolean, i: number, spot: number): Chibi {
-    const root = new THREE.Group();
-    const outfit = this.std(OUTFIT[i % OUTFIT.length]);
-    const skin = this.std(SKIN[i % SKIN.length], { flatShading: false });
-    const hair = this.std(HAIR[i % HAIR.length], { flatShading: false });
-    const dark = this.basic(0x120d14);
-    const hips = new THREE.Group();
-    hips.position.y = 0.3;
-    root.add(hips);
-    const legs: THREE.Group[] = [];
-    for (const x of [-0.11, 0.11]) {
-      const leg = new THREE.Group();
-      leg.position.x = x;
-      hips.add(leg);
-      this.mesh(new THREE.BoxGeometry(0.14, 0.28, 0.15), this.std(0x23202b), 0, -0.14, 0, leg);
-      this.mesh(new THREE.BoxGeometry(0.16, 0.07, 0.2), this.std(0xf2f2f2), 0, -0.28, 0.03, leg);
-      legs.push(leg);
-    }
-    this.mesh(new THREE.BoxGeometry(0.46, 0.42, 0.34), outfit, 0, 0.21, 0, hips);
-    const head = new THREE.Group();
-    head.position.y = 0.72;
-    hips.add(head);
-    this.mesh(new THREE.SphereGeometry(0.38, 20, 16), skin, 0, 0, 0, head).scale.set(1.05, 0.94, 1);
-    this.mesh(new THREE.SphereGeometry(0.4, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), hair, 0, 0.03, -0.02, head).rotation.x = -0.25;
-    for (const x of [-0.13, 0.13]) {
-      this.mesh(new THREE.SphereGeometry(0.06, 10, 8), dark, x, -0.02, 0.36, head).scale.set(1, 1.25, 0.6);
-      this.mesh(new THREE.CircleGeometry(0.05, 12), this.basic(0xff8fb1, { transparent: true, opacity: 0.6 }), x * 1.55, -0.11, 0.335, head);
-    }
-    const mouth = this.mesh(new THREE.BoxGeometry(0.1, 0.025, 0.02), this.basic(0x5a1426), 0, -0.15, 0.365, head);
-    const arms: THREE.Group[] = [];
-    for (const side of [-1, 1]) {
-      const arm = new THREE.Group();
-      arm.position.set(side * 0.29, 0.36, 0);
-      arm.rotation.set(-0.55, 0, side * -0.12);
-      hips.add(arm);
-      this.mesh(new THREE.BoxGeometry(0.12, 0.3, 0.13), outfit, 0, -0.14, 0, arm);
-      this.mesh(new THREE.SphereGeometry(0.07, 10, 8), skin, 0, -0.32, 0, arm);
-      arms.push(arm);
-    }
-    // A microphone in the right hand, shown only on stage.
-    const mic = new THREE.Group();
-    mic.position.y = -0.36;
-    this.mesh(new THREE.CylinderGeometry(0.03, 0.022, 0.2, 10), this.std(0x111111, { metalness: 0.6 }), 0, -0.06, 0, mic);
-    this.mesh(new THREE.SphereGeometry(0.055, 10, 8), this.std(0x9a9a9a, { metalness: 0.9, roughness: 0.25 }), 0, -0.18, 0, mic);
-    arms[1].add(mic);
-    root.userData['mic'] = mic;
-    const tag = this.nameTag(name, me);
-    tag.position.y = 1.72;
-    root.add(tag);
-    const disposables: { dispose(): void }[] = [];
-    root.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.geometry) disposables.push(m.geometry);
-      if (m.material && !Array.isArray(m.material)) disposables.push(m.material);
-    });
-    return { root, head, mouth, legs, arms, spot, phase: Math.random() * 6, disposables };
-  }
 }

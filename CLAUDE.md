@@ -52,9 +52,10 @@ Database changes: edit `apps/server/src/db/schema.ts`, then `cd apps/server && p
 - Phase 0 done: accounts, rooms with 6-character codes, 3D room, live presence, clock sync.
 - Phase 1 done: synced playback (YouTube + built-in 120 BPM click track), singer mic over WebRTC, listeners follow the singer delayed by the measured voice delay, mouth follows the voice. T-01 on one machine: p90 5–21 ms.
 - Phase 2 done: round-robin queue (`rooms/room-queue.ts`, `orderQueue` in shared), turns put the singer on stage and the mic arms itself, vote-skip (50% of non-singers), server-decided song end (`msUntilSongEnd`), fatal YouTube errors skip, 20 s away grace (`AWAY_GRACE_MS`) with singer-away rule and "Giữ bài" (`turn:keep`). Web queue panel in `pages/room/queue/`.
+- Phase 3 done: room ported from the prototype into `pages/room/scene/` (`room-decor.ts`, `chibi.ts`, `seats.ts` with walking routes + tests, `kit.ts` helpers); `ktv-scene.ts` orchestrates. Server seats (`seat:take`, `firstFreeSeat`, `SEAT_FILL_ORDER` in shared), camera presets, low-power mode (RD-05) with automatic fallback.
 - Deployed: GitHub ndbao1803/chibi-ktv (main auto-deploys to Render; Neon Postgres).
 - **Not yet done:** real test on two laptops on different networks with a real YouTube video (checklist in README).
-- Next: Phase 3 (full 3D room from the prototype, seat changes), Phase 4 (everyone's voice, duet invites), Phase 5 (props, chat, fun moments, rating), Phase 6 (polish, first night).
+- Next: Phase 4 (everyone's voice, duet invites), Phase 5 (props, chat, fun moments, rating), Phase 6 (polish, first night).
 
 ## Conventions
 

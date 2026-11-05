@@ -1,5 +1,21 @@
 # Progress — 5 Nov 2026
 
+## Update: Phase 3 complete (the full 3D room)
+- Scene split into `pages/room/scene/`: `room-decor.ts` (everything from the prototype, RD-01..03),
+  `chibi.ts` (shared geometry for 16 avatars, sit/walk/stage poses, away dimming, talk ring ready
+  for Phase 4), `seats.ts` (16 seats, walking routes that never cross furniture — unit-tested for
+  every pair), `kit.ts`. `ktv-scene.ts` keeps the page API small: setMembers, setStage(ids[]),
+  setCapacity, setView, setLowPower, onSeatClick.
+- Server: `seat` on every member (auto-assigned in `SEAT_FILL_ORDER`, kept while away or on stage,
+  freed when they leave for good), `seat:take` first-click-wins. Unit + e2e tests.
+- Checked in Chromium with 16 people (SwiftShader): stools row, singer walks to the stage, reserved
+  seat label, clicking a free seat walks you there and frees the old one.
+- Seen during the 16-person run: a WebRTC "setRemoteDescription … wrong state: stable" console
+  error in the voice code (an answer arriving twice). To fix in Phase 4 with the voice mesh rework.
+- Tests: server unit 46, e2e 28, web 19. Next: Phase 4.
+
+---
+
 ## Update: Phase 2 complete (steps 04–07)
 - **04 song end + broken videos:** the server ends each song at its length + 2 s; the length comes
   from the YouTube API or the first player (`play:duration`); fatal player errors (`play:error`

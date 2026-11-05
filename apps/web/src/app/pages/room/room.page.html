@@ -10,6 +10,15 @@
     <button class="btn-ghost small" (click)="copyLink()">{{ copied() ? 'Đã chép link' : 'Chép link mời' }}</button>
     <button class="btn-ghost small" (click)="leave()">Rời phòng</button>
   </div>
+  @if (!no3d()) {
+    <div class="views" role="group" aria-label="Góc nhìn">
+      <button class="chip" [attr.aria-pressed]="view() === 'all'" (click)="setView('all')">Cả phòng</button>
+      <button class="chip" [attr.aria-pressed]="view() === 'stage'" (click)="setView('stage')">Sân khấu</button>
+      <button class="chip" [attr.aria-pressed]="view() === 'me'" (click)="setView('me')">Chỗ tôi</button>
+      <button class="chip" [attr.aria-pressed]="lowPower()" (click)="toggleLowPower()" title="Tắt đèn nháy, bóng bay và giảm độ nét để máy chạy mượt hơn">Tiết kiệm pin</button>
+    </div>
+    <p class="seat-hint">Bấm vào ghế trống để đổi chỗ</p>
+  }
 </header>
 
 <aside class="hud side">

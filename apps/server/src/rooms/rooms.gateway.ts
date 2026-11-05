@@ -22,6 +22,7 @@ import {
   RoomJoinInput,
   RT_NAMESPACE,
   RtcSignalInput,
+  SeatTakeInput,
   SkipVoteInput,
   TEST_TRACK_LINK,
   TEST_TRACK_SECONDS,
@@ -85,6 +86,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     if (client.data.roomCode !== room.code) leaveCurrentRoom(this.live, client);
     client.data.roomCode = room.code;
     await client.join(channel(room.code));
+    state.capacity = room.capacity;
     const back = state.addSocket(user.id, user.displayName, client.id);
     // A newcomer changes how many votes a skip needs; a returning singer may get the stage back.
     this.live.apply(state, { ...back, presence: true, skip: state.refreshSkip() });
@@ -217,6 +219,19 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     const ctx = roomContext(this.live, client);
     if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
     const r = ctx.state.keepSong(ctx.user.id);
+    if (!r.ok) return r;
+    this.live.apply(ctx.state, r.effects);
+    return { ok: true };
+  }
+
+  /** R-11..R-13: sit somewhere else; the first click on a free seat wins. */
+  @SubscribeMessage(Events.seatTake)
+  takeSeat(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = SeatTakeInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Ghế không hợp lệ' };
+    const r = ctx.state.takeSeat(ctx.user.id, parsed.data.seat);
     if (!r.ok) return r;
     this.live.apply(ctx.state, r.effects);
     return { ok: true };

@@ -16,12 +16,12 @@ describe('RoomState', () => {
     expect(r.removeSocket('u1', 's1')).toBeNull(); // one tab left
     expect(r.removeSocket('u1', 's2')).toEqual({ presence: true });
     expect(r.presence()).toEqual([
-      { userId: 'u1', displayName: 'Tuấn', away: true },
-      { userId: 'u2', displayName: 'Thảo Vy', away: false },
+      { userId: 'u1', displayName: 'Tuấn', away: true, seat: 6 },
+      { userId: 'u2', displayName: 'Thảo Vy', away: false, seat: 4 },
     ]);
     expect(r.tick(now + AWAY_GRACE_MS - 1)).toEqual({});
     expect(r.tick(now + AWAY_GRACE_MS)).toMatchObject({ presence: true, queue: true });
-    expect(r.presence()).toEqual([{ userId: 'u2', displayName: 'Thảo Vy', away: false }]);
+    expect(r.presence()).toEqual([{ userId: 'u2', displayName: 'Thảo Vy', away: false, seat: 4 }]);
   });
 
   it('coming back within the grace keeps you in the room as if nothing happened', () => {
@@ -30,7 +30,7 @@ describe('RoomState', () => {
     r.removeSocket('u1', 's1');
     r.addSocket('u1', 'Tuấn', 's9');
     expect(r.tick(now + AWAY_GRACE_MS * 5)).toEqual({});
-    expect(r.presence()).toEqual([{ userId: 'u1', displayName: 'Tuấn', away: false }]);
+    expect(r.presence()).toEqual([{ userId: 'u1', displayName: 'Tuấn', away: false, seat: 6 }]);
   });
 
   it('starts a new song after a short lead time, pauses and resumes at the same spot', () => {
@@ -351,5 +351,55 @@ describe('RoomState singer drops mid-song (R-09, N-12)', () => {
     r.removeSocket('u3', 's3');
     r.tick(now + AWAY_GRACE_MS);
     expect(r.queue.state().entries.map((e) => e.singerName)).toEqual(['Thảo Vy']);
+  });
+});
+
+describe('RoomState seats (R-04, R-11..R-13)', () => {
+  let now = 1_000;
+  const room = (capacity = 8) => {
+    const r = new RoomState('ABC123', () => now);
+    r.capacity = capacity;
+    return r;
+  };
+  const seatOf = (r: RoomState, id: string) => r.presence().find((m) => m.userId === id)?.seat;
+
+  it('gives arrivals the side sofas first, then the back sofa', () => {
+    const r = room();
+    ['a', 'b', 'c', 'd', 'e'].forEach((id) => r.addSocket(id, id, `s-${id}`));
+    expect(r.presence().map((m) => m.seat)).toEqual([6, 4, 5, 7, 1]);
+  });
+
+  it('moving frees the old seat at once; the first click on a seat wins', () => {
+    const r = room();
+    r.addSocket('a', 'An', 's1');
+    r.addSocket('b', 'Bình', 's2');
+    expect(r.takeSeat('a', 0)).toEqual({ ok: true, effects: { presence: true } });
+    expect(r.takeSeat('b', 0)).toEqual({ ok: false, error: 'An vừa ngồi vào ghế này' });
+    expect(r.takeSeat('b', 6)).toMatchObject({ ok: true }); // An's old seat is free again
+    expect(r.takeSeat('a', 0)).toEqual({ ok: true, effects: {} }); // already there: no broadcast
+  });
+
+  it('a room of 8 has no stools; a room of 16 fills them last', () => {
+    expect(room(8).takeSeat('x', 9)).toMatchObject({ ok: false });
+    const r = room(8);
+    r.addSocket('x', 'X', 's');
+    expect(r.takeSeat('x', 9)).toEqual({ ok: false, error: 'Phòng này không có ghế đó' });
+    const big = room(16);
+    for (let i = 0; i < 9; i++) big.addSocket(`u${i}`, `U${i}`, `s${i}`);
+    expect(seatOf(big, 'u8')).toBe(11);
+  });
+
+  it('keeps the seat while away and on stage; frees it when they leave for good', () => {
+    const r = room();
+    r.addSocket('a', 'An', 's1');
+    r.takeStage('a');
+    expect(seatOf(r, 'a')).toBe(6); // on stage: seat held (R-13)
+    r.removeSocket('a', 's1');
+    expect(seatOf(r, 'a')).toBe(6); // away: still held
+    r.addSocket('b', 'Bình', 's2');
+    expect(seatOf(r, 'b')).toBe(4);
+    r.tick(now + AWAY_GRACE_MS);
+    r.addSocket('c', 'Chi', 's3');
+    expect(seatOf(r, 'c')).toBe(6); // freed, and first in the fill order again
   });
 });

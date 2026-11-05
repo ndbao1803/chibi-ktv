@@ -42,6 +42,8 @@ export const Events = {
   skipState: 'skip:state',
   /** client → server, ack: Ack. "Giữ bài": the song keeps playing past the singer's away grace. */
   turnKeep: 'turn:keep',
+  /** client → server: { seat } — sit somewhere else (R-11) */
+  seatTake: 'seat:take',
   /** client → server {rev, durationSec}, ack: Ack. Reports a YouTube video's duration once known (Y-11). */
   playDuration: 'play:duration',
   /** client → server {rev, code}, ack: Ack. Reports a YouTube player error so the server can skip it. */
@@ -59,6 +61,8 @@ export interface PresenceMember {
   displayName: string;
   /** True while this member is mid-reconnect (N-12): their seat and queue entries are kept. */
   away: boolean;
+  /** Where they sit (0–15, see seats.ts); kept while on stage or away (R-13). */
+  seat: number | null;
 }
 export type PresenceList = PresenceMember[];
 

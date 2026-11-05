@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { io, type Socket } from 'socket.io-client';
 import type { INestApplication } from '@nestjs/common';
-import { Events, RT_NAMESPACE, type JoinAck, type PlaybackState, type QueueState, type RoomInfo, type StageState } from '@ktv/shared';
+import { Events, RT_NAMESPACE, type JoinAck, type PlaybackState, type PresenceList, type QueueState, type RoomInfo, type StageState } from '@ktv/shared';
 import { cookieFrom, startTestApp } from './helpers.js';
 
 /**
@@ -99,5 +99,21 @@ describe('Queue and turns (e2e, Q-03, Q-05, Q-06, R-09, N-12)', () => {
     const next = once<PlaybackState>(c, Events.playState);
     await back.emitWithAck(Events.stageLeave);
     expect((await next).song).toMatchObject({ id: 'bbbbbbbbbb1' });
+  });
+
+  it('seats: arrivals get one, moving is shared with everyone, a taken seat is refused (R-11..R-13)', async () => {
+    const [ca, cb] = await Promise.all([signup('seat-an@example.com', 'An'), signup('seat-binh@example.com', 'Bình')]);
+    const code = ((await http.post('/api/rooms').set('Cookie', ca).send({ capacity: 8 })).body as RoomInfo).code;
+    const [a, b] = await Promise.all([connect(ca), connect(cb)]);
+    await a.emitWithAck(Events.roomJoin, { code });
+    const seen = once<PresenceList>(a, Events.roomPresence);
+    await b.emitWithAck(Events.roomJoin, { code });
+    expect((await seen).map((m) => m.seat)).toEqual([6, 4]);
+
+    const moved = once<PresenceList>(b, Events.roomPresence);
+    expect(await a.emitWithAck(Events.seatTake, { seat: 1 })).toEqual({ ok: true });
+    expect((await moved).find((m) => m.displayName === 'An')?.seat).toBe(1);
+    expect(await b.emitWithAck(Events.seatTake, { seat: 1 })).toEqual({ ok: false, error: 'An vừa ngồi vào ghế này' });
+    expect(await b.emitWithAck(Events.seatTake, { seat: 99 })).toEqual({ ok: false, error: 'Ghế không hợp lệ' });
   });
 });

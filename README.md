@@ -2,7 +2,7 @@
 
 A 3D karaoke room for friends: chibi avatars on a neon KTV sofa, a synced YouTube video, one or two singers on stage, and everyone else cheering. Free to run.
 
-This repository covers **Phases 0–2** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, the hard part (everyone hears the song in step, and listeners hear the singer on the beat), and a real song queue with turns. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
+This repository covers **Phases 0–3** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, the hard part (everyone hears the song in step, and listeners hear the singer on the beat), and a real song queue with turns. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
 
 ## What works now
 
@@ -133,6 +133,14 @@ apps/web/             Angular
 
 Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length, embeddable, blocked in Vietnam), and `CF_TURN_KEY_ID` + `CF_TURN_KEY_TOKEN` (Cloudflare's free TURN relay, for friends behind strict networks). Without them, any valid link plays and free STUN servers are used.
 
+**Phase 3 (the full 3D room):**
+
+- The room from the design prototype: concrete walls, neon strips and signs ("CHIBI KTV", "Hát hết mình"), TV wall in a gold frame, truss towers with moving lights, disco ball, Edison bulbs, fairy lights, plants, balloons, a glowing drinks fridge, the U-sofa and the table with fruit and the song tablet.
+- **Seats:** everyone gets a seat on arrival (side sofas first). Free seats show a pulsing ring and "Ghế trống · bấm để ngồi"; click one and your chibi stands up and walks round the table to it, and everyone sees the walk. Two people clicking the same seat: the first wins, the other is told. Rooms of 16 add a row of bar stools.
+- **Stage:** when your turn starts, your chibi walks from your seat to the stage and picks up the mic; your seat says "Ghế của …" until you come back.
+- **Camera:** **Cả phòng**, **Sân khấu**, **Chỗ tôi** (from your seat). Drag to look around.
+- **Tiết kiệm pin:** hides the fairy lights, light cones and balloons and lowers the resolution. Phones start with it on, and it switches itself on if the room drops under ~28 fps.
+
 ## Try it on two laptops (checklist)
 
 1. Laptop A creates a room, laptop B opens the invite link (different networks if you can, e.g. one on 4G hotspot).
@@ -141,8 +149,8 @@ Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length
 4. B presses **Bỏ qua bài này** → B's song starts, B's mic switches on.
 5. B refreshes the page mid-song → A sees "Bình mất kết nối…", B comes back on stage within a few seconds.
 
-## Next: Phase 3 (the full 3D room)
+## Next: Phase 4 (everyone's voice and duets)
 
-- The room from the design prototype: neon walls, U-sofa, stage, lights, decorations
-- Pick a seat by walking your chibi to it; the server keeps seats fair
-- Camera presets, and staying smooth on phones
+- Everyone can talk (push-to-talk V or open mic), mixed at 30% under the singer during songs, "Khán giả" slider, "Hú hét"
+- Speaking rings, personal mute
+- Duet invites with yes/no and two singers on stage
