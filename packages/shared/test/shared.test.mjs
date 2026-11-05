@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import {
+import { computeScore, scoreComment, firstFreeSeat,
   parseYouTubeId,
   expectedPosition,
   EMPTY_PLAYBACK,
@@ -124,4 +124,21 @@ test('skipDecision ignores a vote cast by the singer themselves', () => {
 
 test('skipDecision with just a singer and nobody else: nothing to skip', () => {
   assert.deepEqual(skipDecision([], ['singer'], 'singer'), { have: 0, needed: 1, skip: false });
+});
+
+test('score: stars map to 10..100, hype adds up to 10, capped at 100 (G-02, G-03)', () => {
+  assert.deepEqual(computeScore([], 0.5), { score: null, bonus: 5 });
+  assert.equal(computeScore([1], 0).score, 10);
+  assert.equal(computeScore([5, 5], 0).score, 100);
+  assert.equal(computeScore([5, 4], 0).score, 89);
+  assert.equal(computeScore([5, 5], 1).score, 100); // capped
+  assert.equal(computeScore([3], 1).score, 65);
+  assert.equal(scoreComment(null), 'Không có đánh giá');
+  assert.equal(scoreComment(89), 'Hát hay quá!');
+});
+
+test('seats: side sofas first, stools only in rooms of 16 (R-04)', () => {
+  assert.equal(firstFreeSeat(new Set(), 8), 6);
+  assert.equal(firstFreeSeat(new Set([6, 4, 5, 7, 1, 2, 0, 3]), 8), null);
+  assert.equal(firstFreeSeat(new Set([6, 4, 5, 7, 1, 2, 0, 3]), 16), 11);
 });

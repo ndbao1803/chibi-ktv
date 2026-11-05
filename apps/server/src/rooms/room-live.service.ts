@@ -75,10 +75,33 @@ export class RoomLiveService implements OnModuleDestroy {
     if (effects.stage) this.emitStage(state);
     if (effects.queue) this.emitQueue(state);
     if (effects.skip) this.emitSkip(state);
-    if (effects.notice) this.emitNotice(state, effects.notice);
+    if (effects.notice) {
+      this.emitNotice(state, effects.notice);
+      this.ns.to(channel(state.code)).emit(Events.chatMsg, state.party.system(effects.notice)); // CH-04
+    }
+    for (const msg of effects.chat ?? []) this.ns.to(channel(state.code)).emit(Events.chatMsg, msg);
+    if (effects.party) this.emitPartySoon(state);
+    if (effects.rating) this.ns.to(channel(state.code)).emit(Events.ratingState, state.party.ratingState());
+    if (effects.score) {
+      this.ns.to(channel(state.code)).emit(Events.score, effects.score);
+      this.ns.to(channel(state.code)).emit(Events.leaderboard, state.party.leaderboard());
+    }
     for (const t of effects.tell ?? []) this.toUser(state, t.userId, 'room:notice', t.text);
     if (effects.invite) this.toUser(state, effects.invite.toId, Events.duetInvite, effects.invite.invite);
     if (effects.fx) this.ns.to(channel(state.code)).emit(Events.fx, effects.fx);
+  }
+
+  /** Party updates (who shakes, hype) go out at most 8 times a second per room (M-03). */
+  private readonly partyTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private emitPartySoon(s: RoomState) {
+    if (this.partyTimers.has(s.code)) return;
+    this.partyTimers.set(
+      s.code,
+      setTimeout(() => {
+        this.partyTimers.delete(s.code);
+        this.ns.to(channel(s.code)).emit(Events.partyState, s.party.state());
+      }, 125),
+    );
   }
 
   /** Every open tab of one member. */
@@ -111,5 +134,7 @@ export class RoomLiveService implements OnModuleDestroy {
     this.tickTimers.clear();
     for (const timer of this.cleanupTimers.values()) clearTimeout(timer);
     this.cleanupTimers.clear();
+    for (const timer of this.partyTimers.values()) clearTimeout(timer);
+    this.partyTimers.clear();
   }
 }

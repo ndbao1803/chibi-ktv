@@ -28,10 +28,11 @@ export class QueuePanel implements OnDestroy {
   /** Fired after my song was accepted, so the page can ask for mic permission early (S-02). */
   readonly added = output<{ startedNow: boolean }>();
 
-  protected link = '';
+  /** Signals (not plain fields): with zoneless Angular only signals re-render the button state. */
+  protected readonly link = signal('');
   /** S-07: "Hát một mình" or "Mời song ca" with one member. */
-  protected who: 'solo' | 'duet' = 'solo';
-  protected partnerId = '';
+  protected readonly who = signal<'solo' | 'duet'>('solo');
+  protected readonly partnerId = signal('');
   /** People I can invite: present, not me, invites on (S-11). */
   protected readonly invitable = computed(() => this.rt.members().filter((m) => m.userId !== this.meId() && !m.away && m.invites));
   protected readonly myInvitesOpen = computed(() => this.rt.members().find((m) => m.userId === this.meId())?.invites ?? true);
@@ -62,13 +63,13 @@ export class QueuePanel implements OnDestroy {
   });
 
   async add() {
-    const link = this.link.trim();
+    const link = this.link().trim();
     if (!link) return;
     this.error.set('');
     this.busy.set(true);
     const startedNow = !this.current();
-    const partner = this.who === 'duet' ? this.partnerId || undefined : undefined;
-    if (this.who === 'duet' && !partner) {
+    const partner = this.who() === 'duet' ? this.partnerId() || undefined : undefined;
+    if (this.who() === 'duet' && !partner) {
       this.busy.set(false);
       this.error.set('Chọn một người để mời song ca');
       return;
@@ -79,9 +80,9 @@ export class QueuePanel implements OnDestroy {
       this.error.set(ack.error);
       return;
     }
-    this.link = '';
-    this.who = 'solo';
-    this.partnerId = '';
+    this.link.set('');
+    this.who.set('solo');
+    this.partnerId.set('');
     this.added.emit({ startedNow });
   }
 

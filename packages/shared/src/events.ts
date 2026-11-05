@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { RoomInfo, PlaybackState } from './index.js';
 import type { QueueState } from './queue.js';
 import type { SkipState } from './skip.js';
-import type { MicMode } from './party.js';
+import type { ChatMessage, LeaderboardRow, MicMode, PartyState, Prop, RatingState } from './party.js';
 
 /* ---------- Realtime events (Socket.IO, namespace "/rt") ---------- */
 
@@ -58,6 +58,21 @@ export const Events = {
   duetCancel: 'duet:cancel',
   /** client → server {open}, ack: Ack. "Không nhận lời mời" (S-11). */
   invitesSet: 'invites:set',
+  /** client → server {prop} (M-04); {on} shake start/stop (M-01..M-03). */
+  propSet: 'prop:set',
+  shakeSet: 'shake:set',
+  /** server → room: PartyState (hype meter, crowd dance, who shakes). */
+  partyState: 'party:state',
+  /** client → server {text}, ack: Ack; server → room: ChatMessage (CH-01..CH-04). */
+  chatSend: 'chat:send',
+  chatMsg: 'chat:msg',
+  /** server → room: RatingState | null — the rating window (G-03). */
+  ratingState: 'rating:state',
+  /** client → server {turnKey, stars}, ack: Ack. */
+  rateSend: 'rate:send',
+  /** server → room: ScoreResult, then LeaderboardRow[] (G-01, G-05). */
+  score: 'score',
+  leaderboard: 'leaderboard',
   /** client → server {rev, durationSec}, ack: Ack. Reports a YouTube video's duration once known (Y-11). */
   playDuration: 'play:duration',
   /** client → server {rev, code}, ack: Ack. Reports a YouTube player error so the server can skip it. */
@@ -67,7 +82,19 @@ export const Events = {
 export type Ack = { ok: true } | { ok: false; error: string };
 
 export type JoinAck =
-  | { ok: true; room: RoomInfo; playback: PlaybackState; stage: StageState; queue: QueueState; skip: SkipState }
+  | {
+      ok: true;
+      room: RoomInfo;
+      playback: PlaybackState;
+      stage: StageState;
+      queue: QueueState;
+      skip: SkipState;
+      party: PartyState;
+      /** The last 50 messages (CH-03). */
+      chat: ChatMessage[];
+      rating: RatingState | null;
+      leaderboard: LeaderboardRow[];
+    }
   | { ok: false; error: string };
 
 export interface PresenceMember {
@@ -81,6 +108,8 @@ export interface PresenceMember {
   mic: MicMode;
   /** False when they turned duet invites off (S-11). */
   invites: boolean;
+  /** Prop in their hands (M-04). */
+  prop: Prop;
 }
 export type PresenceList = PresenceMember[];
 

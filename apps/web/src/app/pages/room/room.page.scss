@@ -2,9 +2,29 @@
 .scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .hud { position: absolute; z-index: 2; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.brand {
+.left {
   top: calc(12px + env(safe-area-inset-top, 0px));
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   left: max(16px, env(safe-area-inset-left, 0px));
+  width: min(640px, calc(100% - 32px - 396px)); min-width: 320px;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  > * { pointer-events: auto; }
+  .spacer { flex: 1 1 0; pointer-events: none; }
+}
+.chatbox { width: min(360px, 100%); flex: 0 1 auto; min-height: 0; display: flex; }
+.hype {
+  display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted);
+  i { flex: 1; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; min-width: 80px; }
+  b { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan), var(--pink), var(--gold)); transition: width 0.4s ease-out; }
+  &.full span { color: var(--gold); font-weight: 700; }
+}
+.cung {
+  top: 38%; left: calc((100% - 396px) / 2); transform: translate(-50%, -50%); z-index: 5; pointer-events: none;
+  font-family: Bungee, Impact, sans-serif; font-size: clamp(56px, 10vw, 120px); color: var(--gold);
+  text-shadow: 0 0 30px rgba(242, 193, 78, 0.7), 0 0 60px rgba(255, 63, 164, 0.5);
+}
+.brand {
+  align-self: flex-start;
   padding: 10px 14px; display: flex; flex-direction: column; gap: 6px;
   .logo { font-size: 22px; }
   .meta { color: var(--muted); font-size: 12px; }
@@ -42,10 +62,6 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); }
 }
 .controls {
-  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  left: max(16px, env(safe-area-inset-left, 0px));
-  width: min(640px, calc(100% - 32px - 396px));
-  min-width: 320px;
   padding: 12px; display: flex; flex-direction: column; gap: 10px;
 }
 .song { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -133,5 +149,6 @@
 @media (max-width: 860px) {
   .side { position: absolute; top: calc(118px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); width: auto; max-height: none; }
   .members { display: none; }
-  .controls { width: auto; right: max(16px, env(safe-area-inset-right, 0px)); min-width: 0; }
+  .left { width: auto; right: max(16px, env(safe-area-inset-right, 0px)); min-width: 0; }
+  .cung { left: 50%; }
 }

@@ -1,0 +1,22 @@
+<div class="party" role="group" aria-label="Quẩy">
+  <div class="props" role="radiogroup" aria-label="Đạo cụ">
+    @for (p of props; track p.id) {
+      <button class="chip" role="radio" [attr.aria-checked]="myProp() === p.id" (click)="pick(p.id)">{{ p.label }}</button>
+    }
+  </div>
+  <button class="shake" [class.on]="shaking()" [disabled]="onStage()"
+          (pointerdown)="$event.preventDefault(); shake(true)" (pointerup)="shake(false)" (pointercancel)="shake(false)" (pointerleave)="shake(false)"
+          title="Giữ để lắc (hoặc giữ phím Space)">
+    {{ shaking() ? 'Đang lắc!' : 'Giữ để lắc (Space)' }}
+  </button>
+  @if (touch) {
+    <button class="chip" [attr.aria-pressed]="motionOn()" (click)="toggleMotion()" title="Lắc điện thoại để lắc đạo cụ">📱 Lắc máy</button>
+  }
+  <span class="sep" aria-hidden="true"></span>
+  @for (r of reactions; track r[0]) {
+    <button class="emo" (click)="fx(r[0])" [attr.aria-label]="'Thả ' + r[1]">{{ r[1] }}</button>
+  }
+  <button class="chip" (click)="fx('flower')" [disabled]="onStage() || !someoneOnStage()" title="Ném hoa lên sân khấu">🌸 Tặng hoa</button>
+  <button class="chip" (click)="fx('cungly')" title="1, 2, 3, DÔ! — cả phòng cụng ly">🥂 Cụng ly</button>
+  <button class="chip" (click)="fx('fart')" [disabled]="onStage()" title="Trò đùa: 2 phút một lần">💨 Xì hơi</button>
+</div>

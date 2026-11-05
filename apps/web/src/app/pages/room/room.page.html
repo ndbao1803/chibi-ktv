@@ -1,26 +1,5 @@
 <canvas #scene class="scene" aria-label="Phòng karaoke 3D với các nhân vật chibi"></canvas>
 
-<header class="hud brand panel">
-  <div class="logo">CHIBI <span>KTV</span></div>
-  <div class="meta">
-    {{ rt.room()?.name ?? 'Đang vào phòng…' }} ·
-    <b class="code">{{ code().toUpperCase() }}</b>
-  </div>
-  <div class="row">
-    <button class="btn-ghost small" (click)="copyLink()">{{ copied() ? 'Đã chép link' : 'Chép link mời' }}</button>
-    <button class="btn-ghost small" (click)="leave()">Rời phòng</button>
-  </div>
-  @if (!no3d()) {
-    <div class="views" role="group" aria-label="Góc nhìn">
-      <button class="chip" [attr.aria-pressed]="view() === 'all'" (click)="setView('all')">Cả phòng</button>
-      <button class="chip" [attr.aria-pressed]="view() === 'stage'" (click)="setView('stage')">Sân khấu</button>
-      <button class="chip" [attr.aria-pressed]="view() === 'me'" (click)="setView('me')">Chỗ tôi</button>
-      <button class="chip" [attr.aria-pressed]="lowPower()" (click)="toggleLowPower()" title="Tắt đèn nháy, bóng bay và giảm độ nét để máy chạy mượt hơn">Tiết kiệm pin</button>
-    </div>
-    <p class="seat-hint">Bấm vào ghế trống để đổi chỗ</p>
-  }
-</header>
-
 <aside class="hud side">
   <app-player-panel />
   <app-queue-panel (added)="onQueued($event)" />
@@ -48,13 +27,46 @@
   </section>
 </aside>
 
-<footer class="hud controls panel">
+<div class="hud left">
+<header class="brand panel">
+  <div class="logo">CHIBI <span>KTV</span></div>
+  <div class="meta">
+    {{ rt.room()?.name ?? 'Đang vào phòng…' }} ·
+    <b class="code">{{ code().toUpperCase() }}</b>
+  </div>
+  <div class="row">
+    <button class="btn-ghost small" (click)="copyLink()">{{ copied() ? 'Đã chép link' : 'Chép link mời' }}</button>
+    <button class="btn-ghost small" (click)="leave()">Rời phòng</button>
+  </div>
+  @if (!no3d()) {
+    <div class="views" role="group" aria-label="Góc nhìn">
+      <button class="chip" [attr.aria-pressed]="view() === 'all'" (click)="setView('all')">Cả phòng</button>
+      <button class="chip" [attr.aria-pressed]="view() === 'stage'" (click)="setView('stage')">Sân khấu</button>
+      <button class="chip" [attr.aria-pressed]="view() === 'me'" (click)="setView('me')">Chỗ tôi</button>
+      <button class="chip" [attr.aria-pressed]="lowPower()" (click)="toggleLowPower()" title="Tắt đèn nháy, bóng bay và giảm độ nét để máy chạy mượt hơn">Tiết kiệm pin</button>
+    </div>
+    <p class="seat-hint">Bấm vào ghế trống để đổi chỗ</p>
+  }
+  <div class="hype" [class.full]="dancing()" role="meter" aria-label="Độ sôi động" [attr.aria-valuenow]="(rt.party().hype * 100).toFixed(0)" aria-valuemin="0" aria-valuemax="100">
+    <span>{{ dancing() ? 'Quẩy hết cỡ! 🎉' : rt.party().hype > 0.7 ? 'Sắp nổ rồi, lắc tiếp!' : 'Sôi động' }}</span>
+    <i><b [style.width.%]="dancing() ? 100 : rt.party().hype * 100"></b></i>
+  </div>
+</header>
+
+<app-chat-panel class="chatbox" [singing]="isSinger() || isPartner()" />
+<div class="spacer"></div>
+
+
+
+<footer class="controls panel">
   <div class="song">
     <button class="btn-ghost" type="button" (click)="playTestTrack()" [disabled]="busy()">Nhạc thử nhịp</button>
     @if (rt.playback().song) {
       <button class="btn-ghost" type="button" (click)="togglePause()">{{ rt.playback().paused ? 'Phát tiếp' : 'Tạm dừng' }}</button>
     }
   </div>
+
+  <app-party-bar [onStage]="isSinger() || isPartner()" (message)="flash($event)" />
 
   <!-- Everyone's voice (VC-01..VC-06) -->
   <div class="voicebar">
@@ -143,6 +155,10 @@
     @if (rt.clock(); as c) { <span>Đồng hồ lệch {{ c.offsetMs >= 0 ? '+' : '' }}{{ c.offsetMs }} ms · trễ {{ c.rttMs }} ms</span> }
   </div>
 </footer>
+</div>
+
+@if (cungWord()) { <div class="hud cung" aria-live="assertive">{{ cungWord() }}</div> }
+<app-score-overlay />
 
 @if (toast()) { <div class="hud toast panel" role="status">{{ toast() }}</div> }
 

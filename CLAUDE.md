@@ -43,6 +43,7 @@ pnpm --filter web test --watch=false
 pnpm build && pnpm start           # production build, then in another terminal:
 pnpm test:sync                     # T-01: 1 singer + 2 listeners, fails above 150 ms p90
 pnpm test:voice                    # Phase 4: talk, cheers, duet across 3 browsers
+pnpm test:party                    # Phase 5: chat, props, cụng ly, rating across 3 browsers
 ```
 
 Create the test database once: `docker compose exec db createdb -U ktv ktv_test`.
@@ -55,9 +56,10 @@ Database changes: edit `apps/server/src/db/schema.ts`, then `cd apps/server && p
 - Phase 2 done: round-robin queue (`rooms/room-queue.ts`, `orderQueue` in shared), turns put the singer on stage and the mic arms itself, vote-skip (50% of non-singers), server-decided song end (`msUntilSongEnd`), fatal YouTube errors skip, 20 s away grace (`AWAY_GRACE_MS`) with singer-away rule and "Giữ bài" (`turn:keep`). Web queue panel in `pages/room/queue/`.
 - Phase 3 done: room ported from the prototype into `pages/room/scene/` (`room-decor.ts`, `chibi.ts`, `seats.ts` with walking routes + tests, `kit.ts` helpers); `ktv-scene.ts` orchestrates. Server seats (`seat:take`, `firstFreeSeat`, `SEAT_FILL_ORDER` in shared), camera presets, low-power mode (RD-05) with automatic fallback.
 - Phase 4 done: talk mesh in `pages/room/voice/talk.service.ts` (one connection per pair, smaller id offers, mics swapped with replaceTrack; signals carry `ch: 'talk'`), mixing rules in `TalkService.gainFor`, PTT/open mic (`mic:mode`, max 8 open), cheers via `fx:send`/`fx`, duet invites (`duet:invite|answer|cancel`, `invites:set`), `StageState.partnerId/partnerName`; partner sings over the talk lines. `pnpm test:voice` = 3-browser check.
+- Phase 5 done: `rooms/room-party.ts` (shakers, hype, dance, fx cooldowns, chat history, rating window, leaderboard), `rooms/profanity.ts`; events `prop:set`, `shake:set`, `party:state` (batched ≤8/s), `chat:send|msg`, `rating:state`, `rate:send`, `score`, `leaderboard`; web components `chat/`, `party/`, `score/`; scene: props, dance, flowers, fart cloud, bubbles, confetti. `pnpm test:party` = 3-browser check. Note: forms use signals (`[ngModel]`+`(ngModelChange)`), because zoneless Angular does not re-render for plain fields.
 - Deployed: GitHub ndbao1803/chibi-ktv (main auto-deploys to Render; Neon Postgres).
 - **Not yet done:** real test on two laptops on different networks with a real YouTube video (checklist in README).
-- Next: Phase 5 (props, chat, fun moments, rating), Phase 6 (polish, first night).
+- Next: Phase 6 (polish, first night).
 
 ## Conventions
 

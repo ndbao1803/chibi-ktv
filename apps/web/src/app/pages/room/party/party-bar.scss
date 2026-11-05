@@ -1,0 +1,18 @@
+:host { display: block; }
+.party { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.props { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip {
+  padding: 5px 9px; font-size: 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04); color: var(--fg);
+}
+.chip[aria-checked='true'], .chip[aria-pressed='true'] { border-color: var(--pink); background: rgba(255, 63, 164, 0.15); }
+.chip:disabled { opacity: 0.4; }
+.shake {
+  padding: 8px 14px; border-radius: 999px; border: 1px solid var(--pink); background: rgba(255, 63, 164, 0.12);
+  color: var(--fg); font-weight: 700; touch-action: none; user-select: none;
+}
+.shake.on { background: var(--pink); box-shadow: 0 0 16px rgba(255, 63, 164, 0.6); }
+.shake:disabled { opacity: 0.4; }
+.emo { background: none; border: 0; font-size: 20px; padding: 2px 3px; line-height: 1; }
+.emo:active { transform: scale(1.25); }
+.sep { width: 1px; height: 20px; background: var(--line); }

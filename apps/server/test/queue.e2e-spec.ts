@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { io, type Socket } from 'socket.io-client';
 import type { INestApplication } from '@nestjs/common';
-import { Events, RT_NAMESPACE, type JoinAck, type PlaybackState, type PresenceList, type QueueState, type RoomInfo, type StageState, type DuetInvite, type FxEvent } from '@ktv/shared';
+import { Events, RT_NAMESPACE, type JoinAck, type PlaybackState, type PresenceList, type QueueState, type RoomInfo, type StageState, type DuetInvite, type FxEvent, type ChatMessage, type PartyState } from '@ktv/shared';
 import { cookieFrom, startTestApp } from './helpers.js';
 
 /**
@@ -157,5 +157,34 @@ describe('Queue and turns (e2e, Q-03, Q-05, Q-06, R-09, N-12)', () => {
     expect(await c.emitWithAck(Events.fxSend, { kind: 'cheer' })).toEqual({ ok: true });
     expect((await cheer).kind).toBe('cheer');
     expect(await c.emitWithAck(Events.fxSend, { kind: 'cheer' })).toMatchObject({ ok: false });
+  });
+
+  it('party: chat with a filter and history, shaking reaches everyone, props change (Phase 5)', async () => {
+    const [ca, cb] = await Promise.all([signup('party-an@example.com', 'An'), signup('party-binh@example.com', 'Bình')]);
+    const code = ((await http.post('/api/rooms').set('Cookie', ca).send({})).body as RoomInfo).code;
+    const [a, b] = await Promise.all([connect(ca), connect(cb)]);
+    await a.emitWithAck(Events.roomJoin, { code });
+    await b.emitWithAck(Events.roomJoin, { code });
+
+    const got = once<ChatMessage>(b, Events.chatMsg);
+    expect(await a.emitWithAck(Events.chatSend, { text: 'Hay vcl!' })).toEqual({ ok: true });
+    expect(await got).toMatchObject({ kind: 'user', name: 'An', text: 'Hay ***!' });
+    expect(await a.emitWithAck(Events.chatSend, { text: 'x'.repeat(201) })).toEqual({ ok: false, error: 'Tối đa 200 ký tự' });
+
+    const party = once<PartyState>(b, Events.partyState);
+    a.emit(Events.shakeSet, { on: true });
+    expect((await party).shakers).toHaveLength(1);
+
+    const pres = once<{ displayName: string; prop: string }[]>(b, Events.roomPresence);
+    expect(await a.emitWithAck(Events.propSet, { prop: 'tambourine' })).toEqual({ ok: true });
+    expect((await pres).find((m) => m.displayName === 'An')?.prop).toBe('tambourine');
+
+    // A newcomer sees the chat history (CH-03).
+    const cc = await signup('party-chi@example.com', 'Chi');
+    const c = await connect(cc);
+    const join = (await c.emitWithAck(Events.roomJoin, { code })) as JoinAck;
+    if (!join.ok) throw new Error();
+    expect(join.chat.map((m) => m.text)).toContain('Hay ***!');
+    expect(join.party.shakers).toHaveLength(1);
   });
 });

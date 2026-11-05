@@ -1,0 +1,31 @@
+:host { display: block; min-height: 0; }
+.chat { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; max-height: 100%; min-height: 0; }
+.chat.closed { padding-block: 6px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.head {
+  display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 4px 0; color: var(--fg);
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;
+  i { margin-left: auto; font-style: normal; color: var(--muted); }
+}
+.badge { background: var(--pink); color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 11px; letter-spacing: 0; }
+.hint { margin: 0; font-size: 12.5px; color: var(--muted); }
+.list {
+  list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; flex: 1 1 auto; max-height: 260px;
+  display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.4;
+  li { overflow-wrap: anywhere; }
+  li b { color: var(--cyan); font-weight: 600; }
+  li.mine b { color: var(--gold); }
+  li.system { color: var(--muted); font-size: 12px; }
+  li.me em { color: var(--pink); }
+  li.forme { background: rgba(242, 193, 78, 0.12); border-radius: 6px; padding: 2px 6px; box-shadow: inset 2px 0 0 var(--gold); }
+  time { margin-left: 6px; font-size: 10.5px; color: var(--muted); opacity: 0.7; }
+  .queue { display: block; margin-top: 3px; background: none; border: 1px solid var(--cyan); color: var(--cyan); border-radius: 999px; padding: 2px 8px; font-size: 11.5px; }
+}
+.quick {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  button { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; font-size: 11.5px; color: var(--fg); }
+  .e { padding: 2px 5px; font-size: 13px; }
+}
+form { display: flex; gap: 6px; }
+input { flex: 1; min-width: 0; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.error { margin: 0; font-size: 12px; }

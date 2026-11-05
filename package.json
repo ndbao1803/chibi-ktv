@@ -16,7 +16,8 @@
     "test": "pnpm --filter @ktv/shared test && pnpm --filter server test && pnpm --filter server test:e2e",
     "start": "node apps/server/dist/main.js",
     "test:sync": "node e2e/sync.mjs",
-    "test:voice": "node e2e/voice-duet.mjs"
+    "test:voice": "node e2e/voice-duet.mjs",
+    "test:party": "node e2e/party.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"

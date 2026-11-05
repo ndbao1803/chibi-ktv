@@ -46,14 +46,14 @@
   <form class="add" (ngSubmit)="add()">
     <div class="line">
       <label for="qlink" class="sr">Link YouTube</label>
-      <input id="qlink" name="qlink" [(ngModel)]="link" placeholder="Dán link YouTube karaoke…" autocomplete="off" />
-      <button class="btn-main" type="submit" [disabled]="busy() || !link.trim()">Thêm bài</button>
+      <input id="qlink" name="qlink" [ngModel]="link()" (ngModelChange)="link.set($event)" placeholder="Dán link YouTube karaoke…" autocomplete="off" />
+      <button class="btn-main" type="submit" [disabled]="busy() || !link().trim()">Thêm bài</button>
     </div>
     <div class="line who" role="radiogroup" aria-label="Ai hát">
-      <label><input type="radio" name="who" value="solo" [(ngModel)]="who" /> Hát một mình</label>
-      <label><input type="radio" name="who" value="duet" [(ngModel)]="who" [disabled]="!invitable().length" /> Mời song ca</label>
-      @if (who === 'duet') {
-        <select name="partner" [(ngModel)]="partnerId" aria-label="Mời ai">
+      <label><input type="radio" name="who" value="solo" [ngModel]="who()" (ngModelChange)="who.set($event)" /> Hát một mình</label>
+      <label><input type="radio" name="who" value="duet" [ngModel]="who()" (ngModelChange)="who.set($event)" [disabled]="!invitable().length" /> Mời song ca</label>
+      @if (who() === 'duet') {
+        <select name="partner" [ngModel]="partnerId()" (ngModelChange)="partnerId.set($event)" aria-label="Mời ai">
           <option value="">Chọn người…</option>
           @for (m of invitable(); track m.userId) { <option [value]="m.userId">{{ m.displayName }}</option> }
         </select>

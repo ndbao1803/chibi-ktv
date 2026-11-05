@@ -65,7 +65,7 @@ describe('RoomState', () => {
     const added = r.queue.add(song, 'u1', 'Tuấn', now);
     expect(added.ok).toBe(true);
     const effects = r.startTurnIfIdle();
-    expect(effects).toEqual({ playback: true, stage: true, queue: true });
+    expect(effects).toMatchObject({ playback: true, stage: true, queue: true });
     expect(r.playback.song).toEqual(song);
     expect(r.playback.startedAtServerMs).toBe(now + START_LEAD_MS);
     expect(r.stage).toMatchObject({ singerId: 'u1', singerName: 'Tuấn', partnerId: null });
@@ -82,10 +82,11 @@ describe('RoomState', () => {
     expect(r.stage.singerId).toBe('u1');
 
     const effects = r.leaveStage('u1');
-    expect(effects).toEqual({ playback: true, stage: true, queue: true });
+    // Tuấn's song is over, so its rating window opens now (G-03) as the next turn starts.
+    expect(effects).toMatchObject({ playback: true, stage: true, queue: true });
     expect(r.stage.singerId).toBe('u2');
 
-    expect(r.leaveStage('u2')).toEqual({ playback: true, stage: true, queue: true });
+    expect(r.leaveStage('u2')).toEqual({ playback: true, stage: true, queue: true, rating: true });
     expect(r.stage.singerId).toBeNull();
     expect(r.playback.song).toBeNull();
   });
@@ -115,7 +116,8 @@ describe('RoomState', () => {
     r.queue.add(song, 'u1', 'Tuấn', now); // u1 never actually joined this room instance
     r.queue.add(song, 'u2', 'Thảo Vy', now);
     const effects = r.startTurnIfIdle();
-    expect(effects).toEqual({ playback: true, stage: true, queue: true });
+    // Tuấn's song is over, so its rating window opens now (G-03) as the next turn starts.
+    expect(effects).toMatchObject({ playback: true, stage: true, queue: true });
     expect(r.stage.singerId).toBe('u2');
   });
 });
@@ -499,10 +501,101 @@ describe('RoomState mics and cheers (VC-01, VC-04, VC-10)', () => {
     let now = 1000;
     const r = new RoomState('ABC123', () => now);
     r.addSocket('u1', 'Tuấn', 's1');
-    expect(r.sendFx('u1', 'cheer')).toEqual({ ok: true, effects: { fx: { userId: 'u1', kind: 'cheer' } } });
+    expect(r.sendFx('u1', 'cheer')).toEqual({ ok: true, effects: { fx: { userId: 'u1', kind: 'cheer', atMs: now }, party: true } });
     now += 2999;
     expect(r.sendFx('u1', 'cheer')).toMatchObject({ ok: false });
     now += 1;
     expect(r.sendFx('u1', 'cheer')).toMatchObject({ ok: true });
+  });
+});
+
+describe('RoomState party layer (Phase 5)', () => {
+  let now = 70_000_000;
+  const yt = (n: number, durationSec: number | null = 200) => ({ kind: 'youtube' as const, id: `vid0000000${n}`, title: `Bài ${n}`, durationSec });
+  function room() {
+    now = 70_000_000;
+    const r = new RoomState('ABC123', () => now);
+    r.addSocket('a', 'An', 'sa');
+    r.addSocket('b', 'Bình', 'sb');
+    r.addSocket('c', 'Chi', 'sc');
+    return r;
+  }
+
+  it('shaking fills the hype meter; a full meter starts an 8 s crowd dance (M-06, FM-03)', () => {
+    const r = room();
+    r.setShaking('a', true);
+    r.setShaking('b', true);
+    r.setShaking('c', true);
+    for (let i = 0; i < 10 && !r.party.state().danceUntilMs; i++) {
+      now += 1000;
+      r.tick(now);
+    }
+    expect(r.party.state().danceUntilMs).toBeGreaterThan(now);
+    expect(r.party.state().hype).toBe(0.25);
+    now += 8000;
+    r.tick(now);
+    expect(r.party.state().danceUntilMs).toBeNull();
+  });
+
+  it('limits shake messages to 8 a second (M-03)', () => {
+    const r = room();
+    let sent = 0;
+    for (let i = 0; i < 20; i++) if (r.party.setShaking('a', i % 2 === 0) !== undefined) sent += r.party['shakeTimes'].get('a')!.length > 8 ? 0 : 1;
+    expect(r.party['shakeTimes'].get('a')!.length).toBe(8);
+  });
+
+  it('flowers need someone on stage; no flowers or pranks from the stage; cụng ly once a minute per room', () => {
+    const r = room();
+    expect(r.sendFx('a', 'flower')).toEqual({ ok: false, error: 'Chưa có ai trên sân khấu để tặng hoa' });
+    r.addSong(yt(1), 'a');
+    expect(r.sendFx('a', 'flower')).toMatchObject({ ok: false });
+    expect(r.sendFx('a', 'fart')).toMatchObject({ ok: false });
+    expect(r.sendFx('b', 'flower')).toMatchObject({ ok: true });
+    expect(r.sendFx('b', 'cungly')).toMatchObject({ ok: true });
+    expect(r.sendFx('c', 'cungly')).toEqual({ ok: false, error: 'Vừa cụng ly xong — đợi một chút nhé' });
+  });
+
+  it('chat: 5 messages per 10 s, /me lines, last 50 kept, joins in the same stream (CH-01..CH-04, CH-11)', () => {
+    const r = room();
+    expect(r.party.history().map((m) => m.text)).toEqual(['An vào phòng', 'Bình vào phòng', 'Chi vào phòng']);
+    for (let i = 0; i < 5; i++) expect(r.say('a', `câu ${i}`)).toMatchObject({ ok: true });
+    expect(r.say('a', 'câu 6')).toMatchObject({ ok: false });
+    now += 10_000;
+    expect(r.say('a', '/me nhảy lên ghế')).toMatchObject({ ok: true, effects: { chat: [{ kind: 'me', text: 'nhảy lên ghế', name: 'An' }] } });
+    for (let i = 0; i < 60; i++) r.party.system(`x${i}`);
+    expect(r.party.history()).toHaveLength(50);
+  });
+
+  it('rating opens 30 s before the end, singers cannot rate, the score goes out after the window (G-01..G-06)', () => {
+    const r = room();
+    r.addSong(yt(1, 100), 'a'); // ends at now + START_LEAD + 102 s
+    const key = r.queue.current!.entry.id;
+    expect(r.rate('b', key, 5)).toMatchObject({ ok: false }); // not open yet
+    const ends = r.queue.current!.endsAtServerMs!;
+    now = ends - 30_000;
+    expect(r.tick(now)).toMatchObject({ rating: true });
+    expect(r.party.ratingState()).toMatchObject({ turnKey: key, singerNames: ['An'] });
+    expect(r.rate('a', key, 5)).toEqual({ ok: false, error: 'Ca sĩ không tự chấm điểm mình được' });
+    expect(r.rate('b', key, 5)).toMatchObject({ ok: true });
+    expect(r.rate('c', key, 4)).toMatchObject({ ok: true });
+    expect(r.party.ratingState()?.count).toBe(2);
+    now = ends; // the song ends: the window stays open 10 s more
+    r.tick(now);
+    now = ends + 10_000;
+    const fx = r.tick(now);
+    expect(fx.score).toMatchObject({ singerNames: ['An'], ratings: 2, comment: expect.any(String) });
+    expect(fx.score!.score).toBeGreaterThanOrEqual(88);
+    expect(fx.chat?.[0].text).toMatch(/^🎤 An: \d+ điểm/);
+    expect(r.party.leaderboard()).toEqual([{ name: 'An', best: fx.score!.score, songs: 1 }]);
+  });
+
+  it('a skipped song still gets a 10 s rating window; nobody rating shows "Không có đánh giá"', () => {
+    const r = room();
+    r.addSong(yt(1, null), 'a');
+    r.leaveStage('a');
+    expect(r.party.ratingState()?.closesAtMs).toBe(now + 10_000);
+    now += 10_000;
+    expect(r.tick(now).score).toMatchObject({ score: null, comment: 'Không có đánh giá' });
+    expect(r.party.leaderboard()).toEqual([]);
   });
 });

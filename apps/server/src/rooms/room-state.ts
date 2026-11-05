@@ -9,12 +9,15 @@ import {
   skipDecision,
   EMPTY_STAGE,
   DUET_INVITE_MS,
-  FX_COOLDOWN_MS,
   MAX_OPEN_MICS,
   type DuetInvite,
   type FxEvent,
   type FxKind,
   type MicMode,
+  type ChatMessage,
+  type Prop,
+  type ScoreResult,
+  PROPS,
   type PlaybackState,
   type SkipState,
   type PresenceList,
@@ -23,6 +26,7 @@ import {
 } from '@ktv/shared';
 import { RoomQueue } from './room-queue.js';
 import { SkipVotes } from './room-skip.js';
+import { RoomParty } from './room-party.js';
 
 /** YouTube player errors that mean "this video will never play here" (bad id, removed, embedding off). */
 const FATAL_PLAYER_ERRORS = new Set([2, 100, 101, 150]);
@@ -41,8 +45,8 @@ interface Member {
   mic: MicMode;
   /** Accepts duet invites (S-11). */
   invites: boolean;
-  /** Last time each effect was sent, for the cooldowns (VC-04). */
-  fxAt: Partial<Record<FxKind, number>>;
+  /** Prop in their hands (M-04). */
+  prop: Prop;
 }
 
 /** What changed, so the caller (`RoomLiveService`) knows exactly what to broadcast. */
@@ -59,12 +63,21 @@ export interface Effects {
   invite?: { toId: string; invite: DuetInvite };
   /** An effect everyone sees and hears (a cheer). */
   fx?: FxEvent;
+  /** Hype meter / dance / shakers changed (Phase 5). */
+  party?: boolean;
+  /** New chat lines (CH-01, CH-04). */
+  chat?: ChatMessage[];
+  /** The rating window opened, changed or closed (G-03). */
+  rating?: boolean;
+  /** A performance got its score (G-01); the leaderboard goes out with it (G-05). */
+  score?: ScoreResult;
 }
 
 /** Merges two Effects; personal messages from both are kept. */
 export function mergeEffects(a: Effects, b: Effects): Effects {
   const tell = [...(a.tell ?? []), ...(b.tell ?? [])];
-  return { ...a, ...b, ...(tell.length ? { tell } : {}) };
+  const chat = [...(a.chat ?? []), ...(b.chat ?? [])];
+  return { ...a, ...b, ...(tell.length ? { tell } : {}), ...(chat.length ? { chat } : {}) };
 }
 
 /**
@@ -85,10 +98,15 @@ export class RoomState {
   /** Number of seats in use: 8 or 16, from the room settings (set on every join). */
   capacity = 16;
 
+  /** Props, hype, chat, rating (Phase 5). Created here: it needs `now`, which field initializers cannot see yet. */
+  readonly party: RoomParty;
+
   constructor(
     readonly code: string,
     private readonly now: () => number = Date.now,
-  ) {}
+  ) {
+    this.party = new RoomParty(now);
+  }
 
   /* ----- presence ----- */
 
@@ -107,11 +125,12 @@ export class RoomState {
       seat: firstFreeSeat(this.takenSeats(), this.capacity),
       mic: 'off',
       invites: true,
-      fxAt: {},
+      prop: PROPS[this.members.size % PROPS.length],
     };
     m.sockets.add(socketId);
     this.members.set(userId, m);
-    if (!existing?.away) return {};
+    if (!existing) return { chat: [this.party.system(`${displayName} vào phòng`)] };
+    if (!existing.away) return {};
     m.away = false;
     m.awayUntilMs = null;
     const turn = this.queue.current;
@@ -176,7 +195,7 @@ export class RoomState {
   presence(): PresenceList {
     return [...this.members.entries()]
       .sort((a, b) => a[1].joinedAt - b[1].joinedAt)
-      .map(([userId, m]) => ({ userId, displayName: m.displayName, away: m.away, seat: m.seat, mic: m.mic, invites: m.invites }));
+      .map(([userId, m]) => ({ userId, displayName: m.displayName, away: m.away, seat: m.seat, mic: m.mic, invites: m.invites, prop: m.prop }));
   }
 
   /* ----- seats (R-11..R-13) ----- */
@@ -353,6 +372,8 @@ export class RoomState {
 
   /** Clears the current turn and starts the next one; an empty queue idles the room (Y-11). */
   advance(): Effects {
+    // The song that just ended gets its rating window now, if it was not open yet (G-03: "or on skip").
+    const rated = this.queue.current ? this.party.endTurn() : false;
     this.queue.setCurrent(null);
     this.skips.clear(); // votes belong to one turn; every path to a new song goes through here
     let next = this.queue.shift();
@@ -361,7 +382,7 @@ export class RoomState {
     if (!next) {
       this.playback = { ...EMPTY_PLAYBACK, rev: this.playback.rev + 1 };
       this.stage = { ...EMPTY_STAGE };
-      return this.withSkip({ playback: true, stage: true, queue: true });
+      return this.withSkip({ playback: true, stage: true, queue: true, ...(rated ? { rating: true } : {}) });
     }
 
     this.setSong(next.song, next.singerName);
@@ -391,7 +412,10 @@ export class RoomState {
       singerAwayUntilMs: nextAway ? this.members.get(next.singerId)!.awayUntilMs : null,
       kept: false,
     });
-    return this.withSkip({ playback: true, stage: true, queue: true, ...(tell.length ? { tell } : {}) });
+    const ids = [next.singerId, ...(next.partnerId ? [next.partnerId] : [])];
+    const names = [next.singerName, ...(next.partnerName ? [next.partnerName] : [])];
+    this.party.startTurn(next.id, next.song.title, ids, names, this.queue.current!.endsAtServerMs);
+    return this.withSkip({ playback: true, stage: true, queue: true, ...(rated ? { rating: true } : {}), ...(tell.length ? { tell } : {}) });
   }
 
   /* ----- adding songs, solo or as a duet invite (S-07..S-11) ----- */
@@ -465,10 +489,40 @@ export class RoomState {
   sendFx(userId: string, kind: FxKind): { ok: true; effects: Effects } | { ok: false; error: string } {
     const m = this.members.get(userId);
     if (!m) return { ok: false, error: 'Bạn chưa ở trong phòng' };
-    const now = this.now(), last = m.fxAt[kind] ?? -Infinity;
-    if (now - last < FX_COOLDOWN_MS[kind]) return { ok: false, error: 'Chậm lại một chút nhé' };
-    m.fxAt[kind] = now;
-    return { ok: true, effects: { fx: { userId, kind } } };
+    const onStage = userId === this.stage.singerId || userId === this.stage.partnerId;
+    // FM-02: flowers go to someone on stage, not from them. FM-06: no pranks from the stage.
+    if (kind === 'flower' && (!this.stage.singerId && !this.stage.partnerId)) return { ok: false, error: 'Chưa có ai trên sân khấu để tặng hoa' };
+    if ((kind === 'flower' || kind === 'fart') && onStage) return { ok: false, error: 'Đang hát thì tập trung hát nhé 🎤' };
+    const err = this.party.tryFx(userId, kind);
+    if (err) return { ok: false, error: err };
+    return { ok: true, effects: { fx: { userId, kind, atMs: this.now() }, ...(this.party.changed() ? { party: true } : {}) } };
+  }
+
+  /* ----- props, shaking, chat, rating (Phase 5) ----- */
+
+  setProp(userId: string, prop: Prop): Effects {
+    const m = this.members.get(userId);
+    if (!m || m.prop === prop) return {};
+    m.prop = prop;
+    return { presence: true };
+  }
+
+  setShaking(userId: string, on: boolean): Effects {
+    if (!this.members.has(userId)) return {};
+    return this.party.setShaking(userId, on) && this.party.changed() ? { party: true } : {};
+  }
+
+  say(userId: string, text: string): { ok: true; effects: Effects } | { ok: false; error: string } {
+    const m = this.members.get(userId);
+    if (!m) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const r = this.party.say(userId, m.displayName, text);
+    return r.ok ? { ok: true, effects: { chat: [r.msg] } } : r;
+  }
+
+  rate(userId: string, turnKey: string, stars: number): { ok: true; effects: Effects } | { ok: false; error: string } {
+    if (!this.members.has(userId)) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const r = this.party.rate(userId, turnKey, stars);
+    return r.ok ? { ok: true, effects: { rating: true } } : r;
   }
 
   /** Adds `skip: true` only when the skip numbers changed, so callers broadcast them too. */
@@ -493,6 +547,7 @@ export class RoomState {
       entry: { ...turn.entry, song },
       endsAtServerMs: p.startedAtServerMs + (song.durationSec! + SONG_END_GRACE_SEC) * 1000,
     });
+    this.party.updateEnd(turn.entry.id, p.startedAtServerMs + (song.durationSec! + SONG_END_GRACE_SEC) * 1000);
     return { playback: true, queue: true };
   }
 
@@ -507,6 +562,7 @@ export class RoomState {
     // N-12: members away longer than the grace leave for good, with their songs and their vote.
     let swept = false;
     const tell: { userId: string; text: string }[] = [];
+    const goneLines: ChatMessage[] = [];
     for (const [id, m] of this.members) {
       if (m.away && m.awayUntilMs !== null && m.awayUntilMs <= now) {
         this.members.delete(id);
@@ -515,6 +571,8 @@ export class RoomState {
           if (this.members.has(e.singerId)) tell.push({ userId: e.singerId, text: `${m.displayName} đã rời phòng — bài “${e.song.title}” để bạn hát một mình` });
         }
         this.skips.drop(id);
+        this.party.forget(id);
+        goneLines.push(this.party.system(`${m.displayName} đã rời phòng`));
         swept = true;
       }
     }
@@ -523,7 +581,17 @@ export class RoomState {
       tell.push({ userId: e.singerId, text: 'Lời mời song ca đã hết hạn — bài vẫn để bạn hát một mình' });
       swept = true;
     }
-    const sweep: Effects = swept ? { presence: true, queue: true, ...(tell.length ? { tell } : {}) } : {};
+    let sweep: Effects = swept ? { presence: true, queue: true, ...(tell.length ? { tell } : {}), ...(goneLines.length ? { chat: goneLines } : {}) } : {};
+    // Phase 5: hype decays and fills, the crowd dance starts, rating windows open and close.
+    if (this.party.tick(1)) sweep = { ...sweep, party: true };
+    const r = this.party.tickRating();
+    if (r.rating) sweep = { ...sweep, rating: true };
+    if (r.score) {
+      const s = r.score;
+      const who = s.singerNames.join(' & ');
+      const line = s.score === null ? `🎤 ${who} — ${s.comment}` : `🎤 ${who}: ${s.score} điểm — ${s.comment}`;
+      sweep = mergeEffects(sweep, { score: s, chat: [this.party.system(line)] });
+    }
     // R-09: the singer dropped and nobody kept the song or took over: move on.
     const turn = this.queue.current;
     if (turn?.singerAwayUntilMs && turn.singerAwayUntilMs <= now) {

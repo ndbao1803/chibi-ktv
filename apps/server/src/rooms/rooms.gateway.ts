@@ -28,6 +28,10 @@ import {
   FxInput,
   InvitesSetInput,
   MicModeInput,
+  ChatInput,
+  PropInput,
+  RateInput,
+  ShakeInput,
   SkipVoteInput,
   TEST_TRACK_LINK,
   TEST_TRACK_SECONDS,
@@ -97,7 +101,18 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     // A newcomer changes how many votes a skip needs; a returning singer may get the stage back.
     this.live.apply(state, { ...back, presence: true, skip: state.refreshSkip() });
     this.log.log(`${user.displayName} joined ${room.code}`);
-    return { ok: true, room, playback: state.playback, stage: state.stage, queue: state.queue.state(), skip: state.skipState() };
+    return {
+      ok: true,
+      room,
+      playback: state.playback,
+      stage: state.stage,
+      queue: state.queue.state(),
+      skip: state.skipState(),
+      party: state.party.state(),
+      chat: state.party.history(),
+      rating: state.party.ratingState(),
+      leaderboard: state.party.leaderboard(),
+    };
   }
 
   /** Clock sync (Y-03): the client measures round-trip time and offset. */
@@ -278,6 +293,44 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     const parsed = FxInput.safeParse(body);
     if (!parsed.success) return { ok: false, error: 'Hiệu ứng không hợp lệ' };
     return this.applied(ctx.state, ctx.state.sendFx(ctx.user.id, parsed.data.kind));
+  }
+
+  /* ---------- the party layer: props, shaking, chat, rating (Phase 5) ---------- */
+
+  @SubscribeMessage(Events.propSet)
+  propSet(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = PropInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Đạo cụ không hợp lệ' };
+    this.live.apply(ctx.state, ctx.state.setProp(ctx.user.id, parsed.data.prop));
+    return { ok: true };
+  }
+
+  /** M-01..M-03: shake start/stop; no ack, it is sent often. */
+  @SubscribeMessage(Events.shakeSet)
+  shakeSet(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): void {
+    const ctx = roomContext(this.live, client);
+    const parsed = ShakeInput.safeParse(body);
+    if (ctx && parsed.success) this.live.apply(ctx.state, ctx.state.setShaking(ctx.user.id, parsed.data.on));
+  }
+
+  @SubscribeMessage(Events.chatSend)
+  chatSend(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = ChatInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'Tin nhắn không hợp lệ' };
+    return this.applied(ctx.state, ctx.state.say(ctx.user.id, parsed.data.text));
+  }
+
+  @SubscribeMessage(Events.rateSend)
+  rateSend(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = RateInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Số sao không hợp lệ' };
+    return this.applied(ctx.state, ctx.state.rate(ctx.user.id, parsed.data.turnKey, parsed.data.stars));
   }
 
   /** Broadcasts a successful result's effects and turns it into a plain ack. */

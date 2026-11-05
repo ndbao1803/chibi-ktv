@@ -1,0 +1,41 @@
+@if (card(); as r) {
+  <section class="panel rate" aria-label="Chấm điểm">
+    <h2>Chấm điểm {{ r.singerNames.join(' & ') }}</h2>
+    <div class="stars" role="radiogroup" aria-label="Số sao">
+      @for (n of [1, 2, 3, 4, 5]; track n) {
+        <button role="radio" [attr.aria-checked]="myStars() === n" [class.on]="myStars() >= n" (click)="rate(n)" [attr.aria-label]="n + ' sao'">★</button>
+      }
+    </div>
+    <p>{{ myStars() ? 'Đã chấm ' + myStars() + ' sao — bấm lại để đổi' : 'Bạn thấy bài này thế nào?' }}
+      @if (secondsLeft() !== null) { · còn {{ secondsLeft() }}s }</p>
+  </section>
+}
+
+@if (shown(); as s) {
+  <div class="screen" role="status" (click)="close()">
+    <div class="box">
+      <p class="who">🎤 {{ s.singerNames.join(' & ') }}</p>
+      <p class="song">{{ s.title }}</p>
+      @if (s.score !== null) {
+        <p class="num">{{ counter() }}</p>
+        <p class="meta">{{ s.ratings }} người chấm @if (s.bonus) { · +{{ s.bonus }} điểm sôi động }</p>
+      }
+      <p class="comment">{{ s.comment }}</p>
+    </div>
+  </div>
+}
+
+@if (rt.leaderboard().length) {
+  <button class="trophy" (click)="board.set(!board())" [attr.aria-expanded]="board()">🏆 Bảng điểm</button>
+}
+@if (board()) {
+  <section class="panel board" aria-label="Bảng điểm đêm nay">
+    <h2>Bảng điểm đêm nay</h2>
+    <ol>
+      @for (row of rt.leaderboard(); track row.name; let i = $index) {
+        <li [class.top]="i === 0"><span>{{ i === 0 ? '👑' : i + 1 }}</span><b>{{ row.name }}</b><small>{{ row.songs }} bài</small><em>{{ row.best }}</em></li>
+      }
+    </ol>
+    @if (rt.leaderboard()[0]; as top) { <p>Ca sĩ của đêm: <b>{{ top.name }}</b></p> }
+  </section>
+}

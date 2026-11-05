@@ -2,7 +2,7 @@
 
 A 3D karaoke room for friends: chibi avatars on a neon KTV sofa, a synced YouTube video, one or two singers on stage, and everyone else cheering. Free to run.
 
-This repository covers **Phases 0–4** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, the hard part (everyone hears the song in step, and listeners hear the singer on the beat), and a real song queue with turns. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
+This repository covers **Phases 0–5** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, the hard part (everyone hears the song in step, and listeners hear the singer on the beat), and a real song queue with turns. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
 
 ## What works now
 
@@ -149,6 +149,17 @@ Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length
 - **Duets:** when adding a song pick **Mời song ca** and a friend. They get a card with **Đồng ý / Từ chối** and 30 seconds; the queue shows "đang chờ … trả lời" and you can **Huỷ mời**. Yes: both of you go on stage under two spotlights, each with your own mic. No answer: you sing it alone. **Không nhận lời mời song ca** turns invites off.
 - How it works: the lead singer's voice and music timing travel as before; everyone else's voice (and the duet partner's singing) uses a second set of peer-to-peer connections, one per pair of people. `pnpm test:voice` checks all of this with three browsers.
 
+**Phase 5 (the party layer):**
+
+- **Props:** pick 🪇 maracas, 🪄 lightstick, 🥁 tambourine or 👏 clap, then hold **Space** (or the big button, or tap **📱 Lắc máy** and shake your phone). Everyone sees your chibi shake it and hears it.
+- **Reactions** ❤️ 🔥 👏 😂 float up from your chibi. **🌸 Tặng hoa** throws a flower onto the stage; they pile up around the singer until the next song.
+- **🥂 Cụng ly:** "1, 2, 3, DÔ!" on every screen at the same moment, everyone raises a glass, clink. Once a minute per room.
+- **💨 Xì hơi:** a prank. Green cloud, the neighbours jump up and hold their noses, you get 😅. Once every 2 minutes, half volume while someone sings, never from the stage.
+- **Hype meter** (top left): shaking, reactions, flowers and cheers fill it. Full: confetti, the disco ball spins faster, the lights pulse (under 3 flashes a second), and the whole room stands up and dances with lightsticks changing colour together for 8 seconds.
+- **Chat** (left): messages also pop up as bubbles over heads. Quick phrases ("Hay quá!", "Dô dô dô!"…), emoji, **@tên** highlights for that person, a pasted YouTube link gets **＋ Thêm vào hàng chờ**, and **/me**, **/hat link**, **/skip** work. 5 messages per 10 s, rude words masked. While you sing, chat waits for you.
+- **Rating:** 30 s before a song ends (or when it is skipped) everyone except the singers gets 1–5 stars. 10 s after the end the KTV score screen counts up to the score (stars plus up to +10 for hype) with a comment. Scores go in the chat; **🏆 Bảng điểm** shows the night's best and "Ca sĩ của đêm".
+- `pnpm test:party` checks all of this with three browsers.
+
 ## Try it on two laptops (checklist)
 
 1. Laptop A creates a room, laptop B opens the invite link (different networks if you can, e.g. one on 4G hotspot).
@@ -157,8 +168,9 @@ Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length
 4. B presses **Bỏ qua bài này** → B's song starts, B's mic switches on.
 5. B refreshes the page mid-song → A sees "Bình mất kết nối…", B comes back on stage within a few seconds.
 
-## Next: Phase 5 (the party layer)
+## Next: Phase 6 (polish and the first night)
 
-- Props and shaking (maracas, tambourine, lightstick, clap), reactions, chat with bubbles
-- Cheers, flowers, crowd dance, lightstick wave, fart prank
-- Hype meter, star rating and the score screen
+- Clear error messages everywhere (mic denied, connection lost, unplayable video)
+- Phone layouts; Vietnamese and English text
+- Error reporting and a simple privacy page
+- Karaoke night with 8 friends

@@ -1,0 +1,45 @@
+<section class="panel chat" [class.closed]="!showing()" aria-label="Trò chuyện">
+  <button class="head" (click)="toggle()" [attr.aria-expanded]="showing()">
+    <span>💬 Trò chuyện</span>
+    @if (unread() > 0) { <b class="badge" aria-label="tin chưa đọc">{{ unread() }}</b> }
+    <i aria-hidden="true">{{ showing() ? '▾' : '▸' }}</i>
+  </button>
+
+  @if (singing() && open()) {
+    <p class="hint">Bạn đang hát — đọc tin nhắn sau nhé 🎤</p>
+  }
+
+  @if (showing()) {
+    <ol class="list" #list aria-live="polite">
+      @for (l of lines(); track l.msg.id) {
+        <li [class]="l.msg.kind" [class.mine]="l.mine" [class.forme]="l.forMe">
+          @if (l.msg.kind === 'system') {
+            <span>{{ l.msg.text }}</span>
+          } @else if (l.msg.kind === 'me') {
+            <em>* {{ l.msg.name }} {{ l.msg.text }}</em>
+          } @else {
+            <b>{{ l.msg.name }}</b>{{ ' ' }}<span>{{ l.msg.text }}</span>
+          }
+          {{ ' ' }}<time>{{ time(l.msg.atMs) }}</time>
+          @if (l.link) {
+            <button class="queue" (click)="queueLink(l.link)">＋ Thêm vào hàng chờ</button>
+          }
+        </li>
+      } @empty {
+        <li class="system">Chưa có tin nhắn. Chào cả phòng đi!</li>
+      }
+    </ol>
+
+    <div class="quick">
+      @for (p of phrases; track p) { <button (click)="send(p)">{{ p }}</button> }
+      @for (e of emoji; track e) { <button class="e" (click)="addEmoji(e)" [attr.aria-label]="'Thêm ' + e">{{ e }}</button> }
+    </div>
+    <form (ngSubmit)="send()">
+      <label for="chat-in" class="sr">Tin nhắn</label>
+      <input id="chat-in" name="chat" [ngModel]="text()" (ngModelChange)="text.set($event)" [maxlength]="max" autocomplete="off"
+             placeholder="Nhắn cả phòng… (@tên, /me, /hat link, /skip)" />
+      <button class="btn-main" type="submit" [disabled]="!text().trim()">Gửi</button>
+    </form>
+    @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  }
+</section>

@@ -1,5 +1,25 @@
 # Progress — 5 Nov 2026
 
+## Update: Phase 5 complete (the party layer)
+- Server `rooms/room-party.ts`: shakers (≤8 msgs/s each), hype that fills from shaking and effects
+  and starts an 8 s crowd dance, per-person and per-room cooldowns, chat (rate limit, word filter,
+  /me, last 50), rating window (opens 30 s before the end or on skip, closes 10 s after), scores
+  (stars → 10..100, + up to 10 hype) and the leaderboard. Party broadcasts batched to 8/s.
+- Web: `party/party-bar` (props, Space/hold/phone shake, reactions, flowers, cụng ly, prank),
+  `chat/chat-panel` (bubbles, quick phrases, @mentions, link → queue, /hat /skip /me),
+  `score/score-overlay` (stars, count-up screen, leaderboard), hype meter, cụng ly countdown read
+  from server time. Scene: props, shaking, dance with shared lightstick colours, glasses, flowers
+  arcing onto a pile, fart cloud with jumps, chat bubbles, confetti; reduced motion skips the
+  jumps and confetti.
+- Bugs found by `pnpm test:party`: plain-field form inputs never re-rendered their buttons under
+  zoneless Angular (chat Enter did nothing until something else re-rendered) — now signals; chat
+  lines had no space after the name; the side panel ended up inside the new left column; the score
+  backdrop covered the video (P-04) — now only over the 3D view.
+- Tests: shared 19, server unit 63, e2e 30, web 20; test:party 16/16, test:voice 11/11, T-01 PASS
+  (worst 35.8 ms). (Phase 4 note above said e2e 30: it was 29 then.)
+
+---
+
 ## Update: Phase 4 complete (everyone's voice and duets)
 - Talk mesh (`voice/talk.service.ts`): one RTCPeerConnection per pair, single sendrecv audio line,
   only the smaller user id offers, mics swapped with `replaceTrack` (no renegotiation, no glare).

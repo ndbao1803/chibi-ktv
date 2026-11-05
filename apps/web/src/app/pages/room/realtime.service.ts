@@ -20,6 +20,13 @@ import {
   type FxEvent,
   type FxKind,
   type MicMode,
+  EMPTY_PARTY,
+  type ChatMessage,
+  type LeaderboardRow,
+  type PartyState,
+  type Prop,
+  type RatingState,
+  type ScoreResult,
 } from '@ktv/shared';
 
 export interface ClockStats {
@@ -41,6 +48,15 @@ export class RealtimeService implements OnDestroy {
   readonly members = signal<PresenceList>([]);
   readonly playback = signal<PlaybackState>(EMPTY_PLAYBACK);
   readonly stage = signal<StageState>({ ...EMPTY_STAGE });
+  /** Phase 5: hype meter, crowd dance, who shakes. */
+  readonly party = signal<PartyState>(EMPTY_PARTY);
+  /** Chat history and new lines (CH-01..CH-04). */
+  readonly chat = signal<ChatMessage[]>([]);
+  /** The rating window, when open (G-03). */
+  readonly rating = signal<RatingState | null>(null);
+  /** The last score, shown on the score screen (G-01). */
+  readonly score = signal<ScoreResult | null>(null);
+  readonly leaderboard = signal<LeaderboardRow[]>([]);
   /** A duet invite for me, waiting for my answer (S-08). */
   readonly invite = signal<DuetInvite | null>(null);
   /** The song queue and whose turn it is (Q-03, Q-05). */
@@ -78,6 +94,13 @@ export class RealtimeService implements OnDestroy {
     this.socket.on(Events.rtcSignal, (m: RtcSignalFromServer) => (m.ch === 'talk' ? this.onTalkSignal(m) : this.onSignal(m)));
     this.socket.on(Events.duetInvite, (inv: DuetInvite) => this.invite.set(inv));
     this.socket.on(Events.fx, (e: FxEvent) => this.onFx(e));
+    this.socket.on(Events.partyState, (p: PartyState) => {
+      if (p.rev >= this.party().rev) this.party.set(p);
+    });
+    this.socket.on(Events.chatMsg, (m: ChatMessage) => this.chat.update((list) => [...list, m].slice(-100)));
+    this.socket.on(Events.ratingState, (r: RatingState | null) => this.rating.set(r));
+    this.socket.on(Events.score, (s: ScoreResult) => this.score.set(s));
+    this.socket.on(Events.leaderboard, (l: LeaderboardRow[]) => this.leaderboard.set(l));
     this.socket.on('auth:error', (msg: string) => this.error.set(msg));
     this.socket.on('disconnect', () => this.connected.set(false));
     // On every (re)connect: measure the clock, then join the room again (N-12).
@@ -95,6 +118,10 @@ export class RealtimeService implements OnDestroy {
       this.stage.set(ack.stage);
       this.queue.set(ack.queue);
       this.skip.set(ack.skip);
+      this.party.set(ack.party);
+      this.chat.set(ack.chat);
+      this.rating.set(ack.rating);
+      this.leaderboard.set(ack.leaderboard);
     });
     this.clockTimer = setInterval(() => void this.syncClock(), 30_000);
   }
@@ -124,6 +151,19 @@ export class RealtimeService implements OnDestroy {
   }
   sendFx(kind: FxKind): Promise<Ack> {
     return this.emit(Events.fxSend, { kind });
+  }
+  setProp(prop: Prop): Promise<Ack> {
+    return this.emit(Events.propSet, { prop });
+  }
+  /** M-01: shake start/stop (no ack: it is sent often; the server drops extras over 8/s). */
+  setShaking(on: boolean): void {
+    this.socket?.emit(Events.shakeSet, { on });
+  }
+  sendChat(text: string): Promise<Ack> {
+    return this.emit(Events.chatSend, { text });
+  }
+  rate(turnKey: string, stars: number): Promise<Ack> {
+    return this.emit(Events.rateSend, { turnKey, stars });
   }
   /** Q-06: take one of my own songs out of the queue. */
   removeFromQueue(entryId: string): Promise<Ack> {

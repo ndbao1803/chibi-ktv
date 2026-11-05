@@ -1,12 +1,16 @@
-import { Component, computed, effect, ElementRef, inject, input, OnDestroy, OnInit, signal, viewChild } from '@angular/core';
+import { Component, computed, effect, ElementRef, inject, input, OnDestroy, OnInit, signal, untracked, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
-import { TEST_TRACK_LINK, type HeadphoneKind } from '@ktv/shared';
+import { TEST_TRACK_LINK, type FxEvent, type HeadphoneKind } from '@ktv/shared';
 import { QueuePanel } from './queue/queue-panel';
 import { AuthService } from '../../core/auth.service';
 import { RealtimeService } from './realtime.service';
 import { VoiceService } from './voice/voice.service';
 import { TalkService } from './voice/talk.service';
-import { whoop } from './sounds';
+import { clink, countBeep, fartSound, propHit, PROP_GAP_MS, whoop } from './sounds';
+import { ChatPanel } from './chat/chat-panel';
+import { PartyBar } from './party/party-bar';
+import { ScoreOverlay } from './score/score-overlay';
+import { CUNGLY_DO_MS, REACTIONS } from '@ktv/shared';
 import { AudioService } from './audio.service';
 import { PlayerPanel } from './player/player-panel';
 import { KtvScene, type CameraView } from './ktv-scene';
@@ -24,7 +28,7 @@ function readLowPower(): boolean {
 
 @Component({
   selector: 'app-room-page',
-  imports: [PlayerPanel, QueuePanel],
+  imports: [PlayerPanel, QueuePanel, ChatPanel, PartyBar, ScoreOverlay],
   templateUrl: './room.page.html',
   styleUrl: './room.page.scss',
   providers: [RealtimeService, VoiceService, TalkService], // one connection per visit to a room
@@ -69,11 +73,24 @@ export class RoomPage implements OnInit, OnDestroy {
       if (partner && kind !== null && !this.talk.partnerMicOn) void this.talk.startPartnerMic(kind).then(() => this.partnerMic.set(this.talk.partnerMicOn));
       if (!partner) this.partnerMic.set(false);
     });
-    this.rt.onFx = (e) => {
-      if (e.kind !== 'cheer') return;
-      this.scene?.cheer(e.userId);
-      whoop(this.audio.ctx, e.userId === this.auth.user()?.id ? 0.8 : this.talk.gainFor(e.userId));
-    };
+    this.rt.onFx = (e) => this.onFx(e);
+    // Phase 5: who shakes and the crowd dance, everyone's props, chat bubbles, a fresh flower pile per song.
+    effect(() => this.scene?.setParty(this.rt.party(), () => this.rt.serverNow()));
+    effect(() => this.scene?.setProps(this.rt.members()));
+    effect(() => {
+      const msgs = this.rt.chat();
+      const last = msgs.at(-1);
+      untracked(() => {
+        if (!last || last.id <= this.bubbled) return;
+        // Only bubbles for new lines, not the history loaded on join.
+        if (this.bubbled > 0 && last.userId && last.kind !== 'system') this.scene?.say(last.userId, last.kind === 'me' ? `* ${last.text}` : last.text);
+        this.bubbled = last.id;
+      });
+    });
+    effect(() => {
+      this.rt.playback().song?.id;
+      untracked(() => this.scene?.clearFlowers());
+    });
   }
 
   ngOnInit() {
@@ -109,6 +126,8 @@ export class RoomPage implements OnInit, OnDestroy {
     clearInterval(this.micTimer);
     clearInterval(this.nowTimer);
     clearInterval(this.speakTimer);
+    clearInterval(this.shakeTimer);
+    clearInterval(this.cungTimer);
     this.scene?.dispose();
     clearTimeout(this.noticeTimer);
   }
@@ -117,6 +136,73 @@ export class RoomPage implements OnInit, OnDestroy {
   async enter() {
     await this.audio.unlock();
   }
+
+  private bubbled = 0;
+  /** Phase 5 effects from anyone in the room. */
+  private onFx(e: FxEvent) {
+    const me = e.userId === this.auth.user()?.id;
+    const vol = me ? 0.8 : this.talk.gainFor(e.userId);
+    const emoji = (REACTIONS as Record<string, string>)[e.kind];
+    if (emoji) this.scene?.react(e.userId, emoji);
+    else if (e.kind === 'cheer') {
+      this.scene?.cheer(e.userId);
+      whoop(this.audio.ctx, vol);
+    } else if (e.kind === 'flower') this.scene?.flower(e.userId);
+    else if (e.kind === 'cungly') this.startCungLy(e.atMs, e.userId);
+    else if (e.kind === 'fart') {
+      this.scene?.fart(e.userId);
+      // FM-06: half volume while someone sings.
+      fartSound(this.audio.ctx, vol * (this.rt.stage().singerId ? 0.5 : 1));
+    }
+  }
+
+  /** FM-01: "1, 2, 3, DÔ!" timed from the server, so every screen clinks together. */
+  protected readonly cungWord = signal('');
+  private cung: { doAtMs: number; vol: number } | null = null;
+  private startCungLy(atMs: number, by: string) {
+    const doAt = atMs + CUNGLY_DO_MS;
+    if (doAt - this.rt.serverNow() < -1000) return;
+    const name = this.rt.members().find((m) => m.userId === by)?.displayName ?? '';
+    this.flash(`${name} mời cả phòng cụng ly!`);
+    this.scene?.cungLy(Math.max(0, doAt - this.rt.serverNow()));
+    this.cung = { doAtMs: doAt, vol: Math.max(0.3, this.talk.gainFor(by)) };
+  }
+  /** Reads the countdown from server time every 100 ms, so it never drifts and every screen agrees. */
+  private cungTimer = setInterval(() => {
+    if (!this.cung) return;
+    const left = this.cung.doAtMs - this.rt.serverNow();
+    const word = left > 2000 ? '1' : left > 1000 ? '2' : left > 0 ? '3' : left > -1200 ? 'DÔ!' : '';
+    if (word === this.cungWord()) return;
+    this.cungWord.set(word);
+    if (word === 'DÔ!') clink(this.audio.ctx, Math.max(this.cung.vol, 0.5));
+    else if (word) countBeep(this.audio.ctx, this.cung.vol);
+    else this.cung = null;
+  }, 100);
+
+  /** M-02: everyone's shaking makes its prop sound, at the audience level during songs. */
+  private lastHit = new Map<string, number>();
+  private shakeTimer = setInterval(() => {
+    const shakers = this.rt.party().shakers;
+    if (!shakers.length || !this.audio.unlocked()) return;
+    const now = performance.now(), me = this.auth.user()?.id;
+    let sounding = 0;
+    for (const id of shakers) {
+      if (sounding >= 6) break; // a crowd of 16 maracas is already loud enough
+      const prop = this.rt.members().find((m) => m.userId === id)?.prop ?? 'maracas';
+      const gap = PROP_GAP_MS[prop];
+      if (!gap) continue;
+      sounding++;
+      if (now - (this.lastHit.get(id) ?? 0) < gap) continue;
+      this.lastHit.set(id, now);
+      propHit(this.audio.ctx, prop, (id === me ? 0.8 : this.talk.gainFor(id)) * 0.7);
+    }
+  }, 30);
+
+  /** M-06: the hype meter and the dance (FM-03). */
+  protected readonly dancing = computed(() => {
+    const until = this.rt.party().danceUntilMs;
+    return !!until && until > this.now();
+  });
 
   /** Who stands on the stage (one now; two for duets in Phase 4). */
   private readonly singerIds = computed(() => [this.rt.stage().singerId, this.rt.stage().partnerId].filter((x): x is string => !!x), {

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { PresenceList } from '@ktv/shared';
+import type { PartyState, PresenceList } from '@ktv/shared';
 import { Chibi, SHARED_GEOMETRY } from './scene/chibi';
 import { basic, C, canvasTexture, disposeTree, label, mesh, REDUCED_MOTION } from './scene/kit';
 import { RoomDecor } from './scene/room-decor';
@@ -40,6 +40,14 @@ export class KtvScene {
   /** Emoji floating up from someone's head (cheers now, reactions in Phase 5). */
   private readonly floats: { s: THREE.Sprite; t: number; vx: number }[] = [];
   private readonly emojiTex = new Map<string, THREE.CanvasTexture>();
+  /** Phase 5 */
+  private party: PartyState | null = null;
+  private serverNow: () => number = Date.now;
+  private wasDancing = false;
+  private readonly flowers: { g: THREE.Group; from: THREE.Vector3; to: THREE.Vector3; t: number }[] = [];
+  private readonly pile: THREE.Group[] = [];
+  private readonly clouds: { g: THREE.Group; t: number }[] = [];
+  private confetti?: { mesh: THREE.InstancedMesh; data: { p: THREE.Vector3; v: THREE.Vector3; r: THREE.Euler; w: THREE.Vector3 }[]; t: number };
   private readonly resize = new ResizeObserver(() => this.fit());
   private readonly ray = new THREE.Raycaster();
   private frame = 0;
@@ -160,6 +168,73 @@ export class KtvScene {
     }
     this.decor.setStageBeams(this.stageIds.map((_, i) => stageSlot(i, this.stageIds.length)));
     this.refreshMarkers();
+  }
+
+  /** Who shakes, the crowd dance and its shared lightstick colours (M-02, FM-03, FM-04). */
+  setParty(p: PartyState, serverNow: () => number) {
+    this.party = p;
+    this.serverNow = serverNow;
+    const shaking = new Set(p.shakers);
+    for (const [id, { c }] of this.chibis) c.shaking = shaking.has(id);
+  }
+
+  setProps(members: PresenceList) {
+    for (const m of members) this.chibis.get(m.userId)?.c.setProp(m.prop);
+  }
+
+  /** CH-02: a chat bubble over someone's head (never for the people on stage: CH-10). */
+  say(userId: string, text: string) {
+    const entry = this.chibis.get(userId);
+    if (entry && !entry.c.onStage) entry.c.say(text);
+  }
+
+  /** FM-01: every seated chibi raises a glass until "DÔ!". */
+  cungLy(msUntilDo: number) {
+    for (const { c } of this.chibis.values()) if (!c.onStage) c.raiseGlass(msUntilDo / 1000 + 0.8);
+  }
+
+  /** FM-02: a flower flies in an arc from someone to the stage and stays in a pile (max 40). */
+  flower(fromId: string) {
+    const from = this.chibis.get(fromId)?.c;
+    if (!from) return;
+    const start = new THREE.Vector3();
+    from.head.getWorldPosition(start);
+    const singers = this.stageIds.length || 1;
+    const slot = stageSlot(Math.floor(Math.random() * singers), singers);
+    const a = Math.random() * Math.PI * 2, r = 0.45 + Math.random() * 0.7;
+    const to = new THREE.Vector3(slot.x + Math.cos(a) * r, STAGE.y + 0.05, slot.z + Math.sin(a) * r * 0.8);
+    const g = this.makeFlower();
+    g.position.copy(start);
+    this.scene.add(g);
+    this.flowers.push({ g, from: start, to, t: 0 });
+  }
+
+  /** A new song: the flower pile is cleared (FM-02). */
+  clearFlowers() {
+    for (const g of this.pile) disposeTree(g);
+    for (const g of this.pile) g.removeFromParent();
+    this.pile.length = 0;
+  }
+
+  /** FM-05: a green cloud at someone's seat; neighbours within 2.6 m jump up and hold their noses. */
+  fart(fromId: string) {
+    const src = this.chibis.get(fromId)?.c;
+    if (!src || src.onStage) return;
+    const at = src.root.position.clone();
+    const g = new THREE.Group();
+    g.position.set(at.x, 0.5, at.z);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x8fd16a, transparent: true, opacity: 0.35, depthWrite: false });
+    for (let i = 0; i < 7; i++) {
+      const m = mesh(new THREE.SphereGeometry(0.25 + Math.random() * 0.2, 10, 8), mat, (Math.random() - 0.5) * 0.6, Math.random() * 0.4, (Math.random() - 0.5) * 0.6, g);
+      m.userData['drift'] = new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.15 + Math.random() * 0.2, (Math.random() - 0.5) * 0.5);
+    }
+    this.scene.add(g);
+    this.clouds.push({ g, t: 0 });
+    this.react(fromId, '😅');
+    for (const [id, { c }] of this.chibis) {
+      if (id === fromId || c.onStage || c.mode !== 'seated') continue;
+      if (c.root.position.distanceTo(at) < 2.6) c.scare({ x: at.x, z: at.z }, REDUCED_MOTION);
+    }
   }
 
   /** VC-04: "Hú hét" — arms up and a 📣 floating from their head. */
@@ -308,6 +383,111 @@ export class KtvScene {
     this.canvas.style.cursor = this.seatUnder(e) !== null ? 'pointer' : '';
   };
 
+  /* ---------- party internals (Phase 5) ---------- */
+
+  private stepParty(t: number, dt: number) {
+    // The crowd dance follows server time, so every screen dances (and colour-cycles) together.
+    const until = this.party?.danceUntilMs ?? null;
+    const now = this.serverNow();
+    const dancing = !!until && now < until;
+    const hue = (now / 2500) % 1;
+    for (const { c } of this.chibis.values()) {
+      c.dancing = dancing && !c.onStage && c.mode === 'seated';
+      c.danceHue = hue;
+    }
+    if (dancing && !this.wasDancing && !REDUCED_MOTION) this.burst();
+    this.wasDancing = dancing;
+    this.decor.update(t, dt, dancing ? 1 : 0, REDUCED_MOTION);
+    // Flowers in flight: a parabola from the thrower to the stage, then onto the pile.
+    for (let i = this.flowers.length - 1; i >= 0; i--) {
+      const f = this.flowers[i];
+      f.t += dt / 0.9;
+      const k = Math.min(1, f.t);
+      f.g.position.lerpVectors(f.from, f.to, k);
+      f.g.position.y += Math.sin(Math.PI * k) * 1.6;
+      f.g.rotation.set(k * 6, k * 4, 0);
+      if (k >= 1) {
+        this.flowers.splice(i, 1);
+        f.g.rotation.set(-Math.PI / 2 + (Math.random() - 0.5) * 0.4, Math.random() * 6, 0);
+        this.pile.push(f.g);
+        if (this.pile.length > 40) {
+          const old = this.pile.shift()!;
+          disposeTree(old);
+          old.removeFromParent();
+        }
+      }
+    }
+    for (let i = this.clouds.length - 1; i >= 0; i--) {
+      const c = this.clouds[i];
+      c.t += dt;
+      c.g.children.forEach((m) => {
+        m.position.addScaledVector(m.userData['drift'] as THREE.Vector3, dt);
+        m.scale.setScalar(1 + c.t * 0.5);
+      });
+      ((c.g.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.35 * (1 - c.t / 3));
+      if (c.t > 3) {
+        disposeTree(c.g);
+        c.g.removeFromParent();
+        this.clouds.splice(i, 1);
+      }
+    }
+    const cf = this.confetti;
+    if (cf?.mesh.visible) {
+      cf.t += dt;
+      const d = new THREE.Object3D();
+      cf.data.forEach((p, i) => {
+        p.p.addScaledVector(p.v, dt);
+        p.p.x += Math.sin(t * 2 + i) * dt * 0.2;
+        p.r.x += p.w.x * dt;
+        p.r.y += p.w.y * dt;
+        d.position.copy(p.p);
+        d.rotation.copy(p.r);
+        d.updateMatrix();
+        cf.mesh.setMatrixAt(i, d.matrix);
+      });
+      cf.mesh.instanceMatrix.needsUpdate = true;
+      if (cf.t > 7) cf.mesh.visible = false;
+    }
+  }
+
+  /** Confetti when the hype meter fills (M-06): one instanced mesh, one draw call. */
+  private burst() {
+    const n = this.lowPower ? 90 : 220;
+    if (!this.confetti || this.confetti.data.length !== n) {
+      this.confetti?.mesh.removeFromParent();
+      const m = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.07, 0.12), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }), n);
+      const col = new THREE.Color();
+      for (let i = 0; i < n; i++) m.setColorAt(i, col.setHex([C.pink, C.cyan, C.gold, 0xffffff, 0x9b6bff][i % 5]));
+      this.scene.add(m);
+      this.confetti = {
+        mesh: m,
+        data: Array.from({ length: n }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), r: new THREE.Euler(), w: new THREE.Vector3() })),
+        t: 0,
+      };
+    }
+    const cf = this.confetti;
+    cf.t = 0;
+    cf.mesh.visible = true;
+    for (const d of cf.data) {
+      d.p.set((Math.random() - 0.5) * 10, 4.6 + Math.random() * 1.5, (Math.random() - 0.5) * 7 - 0.5);
+      d.v.set((Math.random() - 0.5) * 0.6, -(0.6 + Math.random() * 0.8), (Math.random() - 0.5) * 0.6);
+      d.w.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+    }
+  }
+
+  private makeFlower(): THREE.Group {
+    const g = new THREE.Group();
+    const petal = basic([0xff7eb6, 0xffffff, 0xff3fa4, 0xffd166][Math.floor(Math.random() * 4)]);
+    const geo = new THREE.SphereGeometry(0.05, 8, 6);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      mesh(geo, petal, Math.cos(a) * 0.055, 0, Math.sin(a) * 0.055, g).scale.set(1, 0.4, 1);
+    }
+    mesh(new THREE.SphereGeometry(0.035, 8, 6), basic(C.gold), 0, 0.01, 0, g);
+    mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.22, 4), basic(0x3fae5f), 0, -0.11, 0, g);
+    return g;
+  }
+
   /* ---------- internals ---------- */
 
   private slotSpot(index: number) {
@@ -359,11 +539,11 @@ export class KtvScene {
     }
     this.controls.update();
     this.decor.setCameraHeight(this.camera.position.y);
-    this.decor.update(t, dt, 0, REDUCED_MOTION);
     for (const [id, { c }] of this.chibis) {
       c.update(t, dt);
       c.scaleTag(this.camera.position.distanceTo(c.root.position), !(this.view === 'me' && id === this.meId));
     }
+    this.stepParty(t, dt);
     for (let i = this.floats.length - 1; i >= 0; i--) {
       const f = this.floats[i];
       f.t += dt;
