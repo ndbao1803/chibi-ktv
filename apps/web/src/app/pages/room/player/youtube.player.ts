@@ -3,6 +3,7 @@ import type { KtvPlayer } from './ktv-player';
 /* Minimal types for the YouTube IFrame Player API. */
 interface YTPlayer {
   getCurrentTime(): number;
+  getDuration(): number;
   getPlayerState(): number;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
   playVideo(): void;
@@ -74,7 +75,7 @@ export class YouTubePlayer implements KtvPlayer {
     host: HTMLElement,
     videoId: string,
     startSec: number,
-    private readonly onError: (message: string) => void,
+    private readonly onError: (message: string, code: number | null) => void,
   ) {
     const el = document.createElement('div');
     host.appendChild(el);
@@ -91,11 +92,11 @@ export class YouTubePlayer implements KtvPlayer {
               if (this.wantPlay) this.player?.playVideo();
             },
             onStateChange: (e) => (this.state = e.data),
-            onError: (e) => this.onError(youTubeErrorText(e.data)),
+            onError: (e) => this.onError(youTubeErrorText(e.data), e.data),
           },
         });
       })
-      .catch((e: Error) => this.onError(e.message));
+      .catch((e: Error) => this.onError(e.message, null));
   }
 
   position() {
@@ -105,6 +106,9 @@ export class YouTubePlayer implements KtvPlayer {
       this.lastMoveAt = performance.now();
     }
     return p;
+  }
+  duration() {
+    return this.player && this.ready ? this.player.getDuration() : 0;
   }
   isPlaying() {
     return this.state === PLAYING;

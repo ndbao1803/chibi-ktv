@@ -25,7 +25,7 @@ Version 1 has **no host**: Q-07 is a Must, members remove only their own entries
 | 01 | [phase-01-shared-contracts-and-pure-rules.md](phase-01-shared-contracts-and-pure-rules.md) | Zod inputs, event names, queue/turn/skip types, pure rules + tests | 2h | done |
 | 02 | [phase-02-server-queue-and-turns.md](phase-02-server-queue-and-turns.md) | `RoomQueue`, turn start/advance, 1 s room tick, gateway handlers | 3.5h | done |
 | 03 | [phase-03-vote-skip.md](phase-03-vote-skip.md) | 50% of non-singers skip the current song | 1.5h | done |
-| 04 | [phase-04-song-end-and-blocked-videos.md](phase-04-song-end-and-blocked-videos.md) | Y-11 server song end, duration reporting, Y-08 auto-skip, Y-12 on add | 2.5h | pending |
+| 04 | [phase-04-song-end-and-blocked-videos.md](phase-04-song-end-and-blocked-videos.md) | Y-11 server song end, duration reporting, Y-08 auto-skip, Y-12 on add | 2.5h | done |
 | 05 | [phase-05-reconnect-and-singer-disconnect.md](phase-05-reconnect-and-singer-disconnect.md) | 20 s away grace keeps seat/queue; singer-away rule + "Giữ bài" | 2.5h | pending |
 | 06 | [phase-06-web-queue-ui-and-auto-stage.md](phase-06-web-queue-ui-and-auto-stage.md) | Angular queue panel, skip button, auto mic on your turn | 3h | pending |
 | 07 | [phase-07-verification-and-docs.md](phase-07-verification-and-docs.md) | e2e specs, T-01 regression, README/CLAUDE.md | 1h | pending |

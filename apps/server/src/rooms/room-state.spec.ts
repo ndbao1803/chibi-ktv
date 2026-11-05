@@ -186,3 +186,66 @@ describe('RoomState vote-skip (Q-07)', () => {
     expect(alone.vote('u1', true).ok).toBe(true); // with an empty stage, everyone present is eligible
   });
 });
+
+describe('RoomState song end and broken videos (Y-11, Y-08)', () => {
+  const t0 = 9_000_000;
+  let now = t0;
+  const yt = (n: number, durationSec: number | null) => ({ kind: 'youtube' as const, id: `vid0000000${n}`, title: `Bài ${n}`, durationSec });
+
+  function room(first: number | null) {
+    now = t0;
+    const r = new RoomState('ABC123', () => now);
+    r.addSocket('u1', 'Tuấn', 's1');
+    r.addSocket('u2', 'Thảo Vy', 's2');
+    r.queue.add(yt(1, first), 'u1', 'Tuấn', now);
+    r.queue.add(yt(2, 180), 'u2', 'Thảo Vy', now);
+    r.startTurnIfIdle();
+    return r;
+  }
+
+  it('ends the song by itself 2 s after its length and starts the next singer', () => {
+    const r = room(200);
+    const end = r.playback.startedAtServerMs + 200_000;
+    expect(r.tick(end)).toEqual({});
+    expect(r.tick(end + 1_000)).toEqual({});
+    const fx = r.tick(end + 2_000);
+    expect(fx.notice).toBe('Hết bài — tới lượt Thảo Vy');
+    expect(r.playback.song?.title).toBe('Bài 2');
+  });
+
+  it('a paused song never ends by itself', () => {
+    const r = room(200);
+    now = r.playback.startedAtServerMs + 100_000;
+    r.pause('Tuấn');
+    expect(r.tick(now + 1_000_000)).toEqual({});
+  });
+
+  it('the last song ending idles the room', () => {
+    const r = room(200);
+    r.leaveStage('u1'); // Thảo Vy's song now, nothing after it
+    const fx = r.tick(r.playback.startedAtServerMs + 183_000);
+    expect(fx.notice).toBe('Hết bài');
+    expect(r.playback.song).toBeNull();
+  });
+
+  it('a song of unknown length waits for a browser to report it; the first report wins', () => {
+    const r = room(null);
+    expect(r.tick(t0 + 10_000_000)).toEqual({}); // cannot end yet
+    const rev = r.playback.rev;
+    expect(r.reportDuration(rev - 1, 240)).toEqual({}); // stale
+    expect(r.reportDuration(rev, 240)).toEqual({ playback: true, queue: true });
+    expect(r.playback.song?.durationSec).toBe(240);
+    expect(r.reportDuration(r.playback.rev, 999)).toEqual({}); // already known
+    expect(r.queue.current?.endsAtServerMs).toBe(r.playback.startedAtServerMs + 242_000);
+    expect(r.tick(r.playback.startedAtServerMs + 242_000).notice).toMatch(/^Hết bài/);
+  });
+
+  it('skips a video that can never play, but ignores harmless errors and old reports', () => {
+    const r = room(200);
+    expect(r.reportError(r.playback.rev, 5)).toEqual({}); // HTML5 error: not fatal
+    expect(r.reportError(r.playback.rev - 1, 150)).toEqual({}); // about an older song
+    const fx = r.reportError(r.playback.rev, 150);
+    expect(fx.notice).toBe('Video này không phát được — đã bỏ qua');
+    expect(r.playback.song?.title).toBe('Bài 2');
+  });
+});

@@ -35,6 +35,9 @@ export class ClickTrackPlayer implements KtvPlayer {
     const p = this.playing ? this.anchorPos + (this.ctx.currentTime - this.anchorCtx) * this.rate : this.anchorPos;
     return Math.min(p, this.durationSec);
   }
+  duration() {
+    return this.durationSec;
+  }
   isPlaying() {
     return this.playing;
   }

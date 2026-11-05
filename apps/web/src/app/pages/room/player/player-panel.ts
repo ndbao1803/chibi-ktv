@@ -47,6 +47,8 @@ export class PlayerPanel implements OnDestroy {
   private loadedKey = '';
   private lastSeekAt = 0;
   private lastSentAt = 0;
+  /** The playback rev we already reported the video length for (Y-11). */
+  private durationSentFor = -1;
   private seekLeadSec = 0.15;
   /** Set right after a YouTube jump: once playback settles, the leftover error teaches the seek lead. */
   private checkSeekAt = 0;
@@ -97,7 +99,11 @@ export class PlayerPanel implements OnDestroy {
       this.player = new ClickTrackPlayer(this.audio.ctx, p.song.durationSec);
       this.player.seek(start);
     } else {
-      this.player = new YouTubePlayer(this.host().nativeElement, p.song.id, start, (msg) => this.errorText.set(msg));
+      const rev = p.rev;
+      this.player = new YouTubePlayer(this.host().nativeElement, p.song.id, start, (msg, code) => {
+        this.errorText.set(msg);
+        if (code !== null) this.rt.reportPlayerError(rev, code); // the server skips it if fatal (Y-08)
+      });
     }
     this.player.setVolume(this.volume());
     this.lastSeekAt = 0;
@@ -114,6 +120,12 @@ export class PlayerPanel implements OnDestroy {
     }
     const now = this.rt.serverNow();
     const pos = player.position();
+    // Y-11: the server needs the length to end the song on time; the first browser that knows it says so.
+    const len = player.duration();
+    if (p.song.durationSec == null && len > 5 && this.durationSentFor !== p.rev) {
+      this.durationSentFor = p.rev;
+      this.rt.reportDuration(p.rev, len);
+    }
     this.time.set(`${fmt(pos)} / ${p.song.durationSec ? fmt(p.song.durationSec) : '--:--'}`);
     if (player instanceof ClickTrackPlayer) this.beat.set(player.beat());
 

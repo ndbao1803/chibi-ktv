@@ -14,6 +14,8 @@ import {
   ClockPingInput,
   Events,
   parseYouTubeId,
+  PlayDurationInput,
+  PlayErrorInput,
   PlaySetInput,
   QueueAddInput,
   QueueRemoveInput,
@@ -126,6 +128,28 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     const ctx = roomContext(this.live, client);
     if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
     if (ctx.state.resume(ctx.user.displayName)) this.live.emitPlayback(ctx.state);
+    return { ok: true };
+  }
+
+  /** A browser tells us the video's length once its player knows it (Y-11). */
+  @SubscribeMessage(Events.playDuration)
+  playDuration(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = PlayDurationInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Thời lượng không hợp lệ' };
+    this.live.apply(ctx.state, ctx.state.reportDuration(parsed.data.rev, parsed.data.durationSec));
+    return { ok: true };
+  }
+
+  /** A browser's player hit an error; fatal ones skip the song for everyone (Y-08). */
+  @SubscribeMessage(Events.playError)
+  playError(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = PlayErrorInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Mã lỗi không hợp lệ' };
+    this.live.apply(ctx.state, ctx.state.reportError(parsed.data.rev, parsed.data.code));
     return { ok: true };
   }
 

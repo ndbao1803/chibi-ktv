@@ -1,6 +1,7 @@
 import {
   EMPTY_PLAYBACK,
   expectedPosition,
+  msUntilSongEnd,
   SONG_END_GRACE_SEC,
   START_LEAD_MS,
   skipDecision,
@@ -12,6 +13,9 @@ import {
 } from '@ktv/shared';
 import { RoomQueue } from './room-queue.js';
 import { SkipVotes } from './room-skip.js';
+
+/** YouTube player errors that mean "this video will never play here" (bad id, removed, embedding off). */
+const FATAL_PLAYER_ERRORS = new Set([2, 100, 101, 150]);
 
 interface Member {
   displayName: string;
@@ -239,14 +243,44 @@ export class RoomState {
     return this.refreshSkip() ? { ...effects, skip: true } : effects;
   }
 
+  /* ----- song end and broken videos (Y-11, Y-08) ----- */
+
+  /**
+   * A browser reports how long the video is (YouTube tells the player once it loads it). The first
+   * plausible report for the song playing now wins; then the server can end the song on time.
+   */
+  reportDuration(rev: number, durationSec: number): Effects {
+    const p = this.playback;
+    const turn = this.queue.current;
+    if (!turn || !p.song || rev !== p.rev || p.song.durationSec != null) return {};
+    const song = { ...p.song, durationSec: Math.round(durationSec) } as typeof p.song;
+    this.playback = { ...p, song, rev: p.rev + 1 };
+    this.queue.setCurrent({
+      ...turn,
+      entry: { ...turn.entry, song },
+      endsAtServerMs: p.startedAtServerMs + (song.durationSec! + SONG_END_GRACE_SEC) * 1000,
+    });
+    return { playback: true, queue: true };
+  }
+
+  /** The player says this video can never play here (removed, private, embedding off): skip it. */
+  reportError(rev: number, code: number): Effects {
+    if (!this.queue.current || rev !== this.playback.rev || !FATAL_PLAYER_ERRORS.has(code)) return {};
+    return { ...this.advance(), notice: 'Video này không phát được — đã bỏ qua' };
+  }
+
   /** Every server-time deadline in the room (song end, away grace, vote re-counts) in one place. */
   tick(now: number): Effects {
-    void now;
     // Q-07: people leaving can make the existing votes enough (4 of 8 voted, 3 others left).
     const skipped = this.skipIfVoted();
     if (skipped) return skipped;
-    // TODO phase 04: when `queue.current?.endsAtServerMs` has passed (and the song is not `kept`
-    // past a dropped singer), call `this.endTurn(null)` here.
+    // Y-11: the server, not each browser, decides the song is over (2 s grace for the last frames).
+    const left = this.queue.current ? msUntilSongEnd(this.playback, now) : null;
+    if (left !== null && left <= 0) {
+      const effects = this.advance();
+      const next = this.stage.singerName;
+      return { ...effects, notice: next ? `Hết bài — tới lượt ${next}` : 'Hết bài' };
+    }
     // TODO phase 05: `singerAwayUntilMs` bookkeeping and the away-grace seat/queue protection.
     return this.refreshSkip() ? { skip: true } : {};
   }

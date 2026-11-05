@@ -13,7 +13,7 @@
 ## Overview
 
 - **Priority:** P1
-- **Status:** pending
+- **Status:** done (5 Nov 2026)
 - Today each browser independently decides "Hết bài" and just stops. The server must own the end of
   the song so the queue advances once, for everybody, at the same moment. Also: make the Y-12 check
   real (it is already coded but needs `YOUTUBE_API_KEY` and a visible rejection), and auto-skip a
@@ -122,15 +122,15 @@ Modify
 
 ## Todo List
 
-- [ ] `endsAtServerMs` computed on turn start
-- [ ] Tick ends the song and advances, once, for everyone
-- [ ] `play:duration` fills an unknown duration (first plausible report wins)
-- [ ] `play:error` auto-skips fatal codes for the current rev only
-- [ ] `queue:add` surfaces `judgeVideo`'s Vietnamese reason
-- [ ] Idle room when the queue is empty
-- [ ] `player-panel.ts` no longer decides the end locally
-- [ ] `.env.example` / README explain `YOUTUBE_API_KEY`
-- [ ] Server unit tests green
+- [x] `endsAtServerMs` computed on turn start
+- [x] Tick ends the song and advances, once, for everyone
+- [x] `play:duration` fills an unknown duration (first plausible report wins)
+- [x] `play:error` auto-skips fatal codes for the current rev only
+- [x] `queue:add` surfaces `judgeVideo`'s Vietnamese reason
+- [x] Idle room when the queue is empty
+- [x] `player-panel.ts` no longer decides the end locally
+- [x] `.env.example` / README explain `YOUTUBE_API_KEY`
+- [x] Server unit tests green
 
 ## Success Criteria
 

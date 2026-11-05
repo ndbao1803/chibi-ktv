@@ -5,6 +5,8 @@ export interface KtvPlayer {
   /** YouTube can only jump; the test track can also play slightly faster or slower. */
   readonly canChangeRate: boolean;
   position(): number;
+  /** Length of the video in seconds, once the player knows it (0 or less = not yet). */
+  duration(): number;
   isPlaying(): boolean;
   /** Buffering, an ad, or a stall: the position is not moving although we asked it to play. */
   isWaiting(): boolean;

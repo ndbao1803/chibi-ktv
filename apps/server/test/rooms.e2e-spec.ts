@@ -253,3 +253,64 @@ describe('Vote-skip (e2e, Q-07)', () => {
     expect(await s.emitWithAck(Events.skipVote, { vote: 'yes please' })).toEqual({ ok: false, error: 'Phiếu bầu không hợp lệ' });
   });
 });
+
+describe('Song length and broken videos (e2e, Y-11, Y-08)', () => {
+  let app: INestApplication;
+  let baseUrl: string;
+  let http: ReturnType<typeof request>;
+  const sockets: Socket[] = [];
+  const signup = async (email: string, displayName: string) =>
+    cookieFrom(await http.post('/api/auth/register').send({ email, password: 'password-123', displayName }).expect(201));
+  const connect = async (cookie: string) => {
+    const s = io(baseUrl + RT_NAMESPACE, { transports: ['websocket'], extraHeaders: { cookie }, reconnection: false });
+    sockets.push(s);
+    await new Promise<void>((r) => s.once('connect', () => r()));
+    return s;
+  };
+  const once = <T>(s: Socket, ev: string) => new Promise<T>((r) => s.once(ev, r));
+
+  beforeAll(async () => {
+    ({ app, baseUrl } = await startTestApp());
+    http = request(app.getHttpServer());
+  });
+  afterAll(async () => {
+    sockets.forEach((s) => s.close());
+    await app.close();
+  });
+
+  it('a reported length is shared with everyone; a fatal player error skips to the next song', async () => {
+    const ca = await signup('len-a@example.com', 'An');
+    const cb = await signup('len-b@example.com', 'Bình');
+    const code = ((await http.post('/api/rooms').set('Cookie', ca).send({})).body as RoomInfo).code;
+    const a = await connect(ca);
+    const b = await connect(cb);
+    await a.emitWithAck(Events.roomJoin, { code });
+    await b.emitWithAck(Events.roomJoin, { code });
+
+    const first = once<PlaybackState>(b, Events.playState);
+    await a.emitWithAck(Events.queueAdd, { link: 'https://youtu.be/dQw4w9WgXcQ' });
+    const p = await first;
+    expect(p.song?.durationSec).toBeNull(); // no API key in tests: length unknown until a player reports it
+    await b.emitWithAck(Events.queueAdd, { link: 'https://youtu.be/9bZkp7svik8' });
+
+    const timed = once<PlaybackState>(a, Events.playState);
+    expect(await b.emitWithAck(Events.playDuration, { rev: p.rev, durationSec: 213 })).toEqual({ ok: true });
+    expect((await timed).song?.durationSec).toBe(213);
+
+    const notice = once<string>(a, 'room:notice');
+    const next = once<PlaybackState>(a, Events.playState);
+    const current = (await a.emitWithAck(Events.roomJoin, { code })) as JoinAck; // fresh snapshot for the rev
+    const rev = current.ok ? current.playback.rev : -1;
+    expect(await b.emitWithAck(Events.playError, { rev, code: 150 })).toEqual({ ok: true });
+    expect(await notice).toBe('Video này không phát được — đã bỏ qua');
+    expect((await next).song).toMatchObject({ id: '9bZkp7svik8' });
+  });
+
+  it('rejects nonsense lengths', async () => {
+    const c = await signup('len-bad@example.com', 'Bad');
+    const code = ((await http.post('/api/rooms').set('Cookie', c).send({})).body as RoomInfo).code;
+    const s = await connect(c);
+    await s.emitWithAck(Events.roomJoin, { code });
+    expect(await s.emitWithAck(Events.playDuration, { rev: 1, durationSec: 1 })).toEqual({ ok: false, error: 'Thời lượng không hợp lệ' });
+  });
+});

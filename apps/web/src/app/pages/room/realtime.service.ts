@@ -90,6 +90,14 @@ export class RealtimeService implements OnDestroy {
   addToQueue(link: string): Promise<Ack> {
     return this.emit(Events.queueAdd, { link });
   }
+  /** Y-11: tell the server how long the video is, so it can end the song on time. */
+  reportDuration(rev: number, durationSec: number): void {
+    this.socket?.emit(Events.playDuration, { rev, durationSec });
+  }
+  /** Y-08: this video cannot play here; the server skips it for everyone. */
+  reportPlayerError(rev: number, code: number): void {
+    this.socket?.emit(Events.playError, { rev, code });
+  }
   voteSkip(vote: boolean): Promise<Ack> {
     return this.emit(Events.skipVote, { vote });
   }
