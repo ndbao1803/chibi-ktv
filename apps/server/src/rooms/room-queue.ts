@@ -25,11 +25,17 @@ export class RoomQueue {
     return orderQueue(this.entries, this.sungCount);
   }
 
-  add(song: SongRef, singerId: string, singerName: string, nowMs: number): { ok: true; entryId: string } | { ok: false; error: string } {
+  add(
+    song: SongRef,
+    singerId: string,
+    singerName: string,
+    nowMs: number,
+    invite: QueueEntry['invite'] = null,
+  ): { ok: true; entryId: string } | { ok: false; error: string } {
     const ownCount = this.entries.filter((e) => e.singerId === singerId).length;
     if (ownCount >= MAX_QUEUE_PER_USER) return { ok: false, error: 'Bạn đang có 5 bài trong danh sách rồi' };
     if (this.entries.length >= MAX_QUEUE_TOTAL) return { ok: false, error: 'Danh sách phòng đã đầy' };
-    const entry: QueueEntry = { id: randomUUID(), song, singerId, singerName, addedAtMs: nowMs };
+    const entry: QueueEntry = { id: randomUUID(), song, singerId, singerName, addedAtMs: nowMs, partnerId: null, partnerName: null, invite };
     this.entries.push(entry);
     this.rev++;
     return { ok: true, entryId: entry.id };
@@ -50,6 +56,56 @@ export class RoomQueue {
     const before = this.entries.length;
     this.entries = this.entries.filter((e) => e.singerId !== userId);
     if (this.entries.length !== before) this.rev++;
+  }
+
+  /* ----- duet invites (S-07..S-11) ----- */
+
+  /** 1-based place of a pending entry in the round-robin order, or 0 if it is not pending. */
+  position(entryId: string): number {
+    return this.ordered().findIndex((e) => e.id === entryId) + 1;
+  }
+
+  /** The invited person says yes or no (S-09). Returns the entry so the caller can tell the inviter. */
+  answerInvite(entryId: string, userId: string, yes: boolean): { ok: true; entry: QueueEntry } | { ok: false; error: string } {
+    const entry = this.entries.find((e) => e.id === entryId);
+    if (!entry?.invite || entry.invite.toId !== userId) return { ok: false, error: 'Lời mời này không còn nữa' };
+    const toName = entry.invite.toName;
+    entry.invite = null;
+    if (yes) {
+      entry.partnerId = userId;
+      entry.partnerName = toName;
+    }
+    this.rev++;
+    return { ok: true, entry };
+  }
+
+  /** The inviter takes the invite back (S-10); the song stays theirs, solo. */
+  cancelInvite(entryId: string, userId: string): { ok: true } | { ok: false; error: string } {
+    const entry = this.entries.find((e) => e.id === entryId);
+    if (!entry?.invite || entry.singerId !== userId) return { ok: false, error: 'Không có lời mời nào để huỷ' };
+    entry.invite = null;
+    this.rev++;
+    return { ok: true };
+  }
+
+  /** Invites with no answer in time; they become solo entries (S-09). Returns those entries. */
+  expireInvites(nowMs: number): QueueEntry[] {
+    const expired = this.entries.filter((e) => e.invite && e.invite.expiresAtMs <= nowMs);
+    for (const e of expired) e.invite = null;
+    if (expired.length) this.rev++;
+    return expired;
+  }
+
+  /** Someone left for good: invites to them lapse, duets with them become solo. Returns affected entries. */
+  forgetPartner(userId: string): QueueEntry[] {
+    const hit = this.entries.filter((e) => e.invite?.toId === userId || e.partnerId === userId);
+    for (const e of hit) {
+      e.invite = null;
+      e.partnerId = null;
+      e.partnerName = null;
+    }
+    if (hit.length) this.rev++;
+    return hit;
   }
 
   /** Removes and returns the next entry to sing, in round-robin order, or null when empty. */

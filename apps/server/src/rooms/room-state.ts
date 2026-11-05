@@ -7,6 +7,14 @@ import {
   AWAY_GRACE_MS,
   START_LEAD_MS,
   skipDecision,
+  EMPTY_STAGE,
+  DUET_INVITE_MS,
+  FX_COOLDOWN_MS,
+  MAX_OPEN_MICS,
+  type DuetInvite,
+  type FxEvent,
+  type FxKind,
+  type MicMode,
   type PlaybackState,
   type SkipState,
   type PresenceList,
@@ -30,6 +38,11 @@ interface Member {
   awayUntilMs: number | null;
   /** Seat number (R-04); kept while away or on stage, freed when they leave for good (R-13). */
   seat: number | null;
+  mic: MicMode;
+  /** Accepts duet invites (S-11). */
+  invites: boolean;
+  /** Last time each effect was sent, for the cooldowns (VC-04). */
+  fxAt: Partial<Record<FxKind, number>>;
 }
 
 /** What changed, so the caller (`RoomLiveService`) knows exactly what to broadcast. */
@@ -40,6 +53,18 @@ export interface Effects {
   queue?: boolean;
   skip?: boolean;
   notice?: string;
+  /** Messages for one person only (an invite answer, an expired invite). */
+  tell?: { userId: string; text: string }[];
+  /** A duet invite to deliver to one person (S-08). */
+  invite?: { toId: string; invite: DuetInvite };
+  /** An effect everyone sees and hears (a cheer). */
+  fx?: FxEvent;
+}
+
+/** Merges two Effects; personal messages from both are kept. */
+export function mergeEffects(a: Effects, b: Effects): Effects {
+  const tell = [...(a.tell ?? []), ...(b.tell ?? [])];
+  return { ...a, ...b, ...(tell.length ? { tell } : {}) };
 }
 
 /**
@@ -51,7 +76,7 @@ export { AWAY_GRACE_MS };
 export class RoomState {
   private readonly members = new Map<string, Member>();
   playback: PlaybackState = { ...EMPTY_PLAYBACK };
-  stage: StageState = { singerId: null, singerName: null };
+  stage: StageState = { ...EMPTY_STAGE };
   readonly queue = new RoomQueue();
   private readonly skips = new SkipVotes();
   /** The skip numbers last broadcast, so we only send `skip:state` when they really change. */
@@ -80,6 +105,9 @@ export class RoomState {
       away: false,
       awayUntilMs: null,
       seat: firstFreeSeat(this.takenSeats(), this.capacity),
+      mic: 'off',
+      invites: true,
+      fxAt: {},
     };
     m.sockets.add(socketId);
     this.members.set(userId, m);
@@ -88,9 +116,14 @@ export class RoomState {
     m.awayUntilMs = null;
     const turn = this.queue.current;
     if (turn?.entry.singerId === userId && !this.stage.singerId) {
-      this.stage = { singerId: userId, singerName: m.displayName };
+      this.stage = { ...this.stage, singerId: userId, singerName: m.displayName };
       this.queue.setCurrent({ ...turn, singerAwayUntilMs: null });
       return { stage: true, queue: true, notice: `${m.displayName} đã kết nối lại` };
+    }
+    // A duet partner back in time joins the lead on stage again.
+    if (turn?.entry.partnerId === userId && this.stage.singerId && !this.stage.partnerId) {
+      this.stage = { ...this.stage, partnerId: userId, partnerName: m.displayName };
+      return { stage: true };
     }
     return {};
   }
@@ -108,8 +141,13 @@ export class RoomState {
     if (m.sockets.size > 0) return null;
     m.away = true;
     m.awayUntilMs = this.now() + AWAY_GRACE_MS;
+    if (this.stage.partnerId === userId) {
+      this.stage = { ...this.stage, partnerId: null, partnerName: null };
+      return { presence: true, stage: true };
+    }
     if (this.stage.singerId !== userId) return { presence: true };
-    this.stage = { singerId: null, singerName: null };
+    // The lead dropped; a duet partner keeps singing.
+    this.stage = { ...this.stage, singerId: null, singerName: null };
     const turn = this.queue.current;
     if (turn && !turn.kept) {
       this.queue.setCurrent({ ...turn, singerAwayUntilMs: this.now() + AWAY_GRACE_MS });
@@ -138,7 +176,7 @@ export class RoomState {
   presence(): PresenceList {
     return [...this.members.entries()]
       .sort((a, b) => a[1].joinedAt - b[1].joinedAt)
-      .map(([userId, m]) => ({ userId, displayName: m.displayName, away: m.away, seat: m.seat }));
+      .map(([userId, m]) => ({ userId, displayName: m.displayName, away: m.away, seat: m.seat, mic: m.mic, invites: m.invites }));
   }
 
   /* ----- seats (R-11..R-13) ----- */
@@ -202,7 +240,14 @@ export class RoomState {
       return { ok: false, error: `${this.stage.singerName} đang hát` };
     }
     const already = this.stage.singerId === userId;
-    this.stage = { singerId: userId, singerName: m.displayName };
+    // Someone steps up next to a duet partner; the partner stepping up becomes the lead.
+    const keepPartner = this.stage.partnerId !== userId;
+    this.stage = {
+      singerId: userId,
+      singerName: m.displayName,
+      partnerId: keepPartner ? this.stage.partnerId : null,
+      partnerName: keepPartner ? this.stage.partnerName : null,
+    };
     const turn = this.queue.current;
     if (turn?.singerAwayUntilMs) {
       this.queue.setCurrent({ ...turn, singerAwayUntilMs: null, kept: true });
@@ -223,9 +268,14 @@ export class RoomState {
 
   /** `stage:leave` by the running turn's singer ends the turn (S-01); by anyone else it is a no-op. */
   leaveStage(userId: string): Effects {
+    // The duet partner steps down alone; the lead keeps singing.
+    if (this.stage.partnerId === userId) {
+      this.stage = { ...this.stage, partnerId: null, partnerName: null };
+      return { stage: true, skip: this.refreshSkip() };
+    }
     if (this.queue.current && this.queue.current.entry.singerId === userId) return this.endTurn(userId);
     if (this.stage.singerId !== userId) return {};
-    this.stage = { singerId: null, singerName: null };
+    this.stage = { ...EMPTY_STAGE };
     return { stage: true };
   }
 
@@ -237,8 +287,10 @@ export class RoomState {
    */
   vote(userId: string, vote: boolean): { ok: true; effects: Effects } | { ok: false; error: string } {
     if (!this.queue.current) return { ok: false, error: 'Chưa có bài nào đang phát' };
-    if (userId === this.stage.singerId) return { ok: false, error: 'Ca sĩ dùng “Xuống sân khấu” để bỏ bài của mình' };
-    if (!this.memberIds().some((id) => id !== this.stage.singerId)) {
+    if (userId === this.stage.singerId || userId === this.stage.partnerId) {
+      return { ok: false, error: 'Ca sĩ dùng “Xuống sân khấu” để bỏ bài của mình' };
+    }
+    if (!this.voterIds().some((id) => id !== this.stage.singerId)) {
       return { ok: false, error: 'Cần ít nhất một người khác trong phòng' };
     }
     if (!this.skips.toggle(userId, vote)) return { ok: true, effects: {} };
@@ -250,7 +302,7 @@ export class RoomState {
   /** What the "Bỏ qua (have/needed)" button shows. Names come from server presence only. */
   skipState(): SkipState {
     const singer = this.stage.singerId;
-    const d = skipDecision(this.skips.ids, this.memberIds(), singer);
+    const d = skipDecision(this.skips.ids, this.voterIds(), singer);
     const voterNames = this.skips.ids
       .filter((id) => id !== singer && this.members.has(id))
       .map((id) => this.members.get(id)!.displayName);
@@ -271,13 +323,17 @@ export class RoomState {
   private skipIfVoted(): Effects | null {
     const turn = this.queue.current;
     if (!turn) return null;
-    if (!skipDecision(this.skips.ids, this.memberIds(), this.stage.singerId).skip) return null;
+    if (!skipDecision(this.skips.ids, this.voterIds(), this.stage.singerId).skip) return null;
     const title = turn.entry.song.title;
     return { ...this.advance(), notice: `Cả phòng đã bỏ qua bài “${title}”` };
   }
 
   private memberIds(): string[] {
     return [...this.members.keys()];
+  }
+  /** Everyone except the duet partner (the lead is excluded by `skipDecision` itself). */
+  private voterIds(): string[] {
+    return this.memberIds().filter((id) => id !== this.stage.partnerId);
   }
 
   /* ----- turns (Q-05, S-01) ----- */
@@ -304,15 +360,29 @@ export class RoomState {
 
     if (!next) {
       this.playback = { ...EMPTY_PLAYBACK, rev: this.playback.rev + 1 };
-      this.stage = { singerId: null, singerName: null };
+      this.stage = { ...EMPTY_STAGE };
       return this.withSkip({ playback: true, stage: true, queue: true });
     }
 
     this.setSong(next.song, next.singerName);
     this.queue.sung(next.singerId);
+    // An invite still open when the song starts lapses: the song is sung solo (S-09).
+    const tell: { userId: string; text: string }[] = [];
+    if (next.invite) {
+      tell.push({ userId: next.singerId, text: `${next.invite.toName} chưa trả lời — bạn hát một mình bài này nhé` });
+      next.invite = null;
+    }
     // A singer who is away right now gets the same rule as dropping mid-song: open stage, 20 s grace.
     const nextAway = this.members.get(next.singerId)?.away ?? false;
-    this.stage = nextAway ? { singerId: null, singerName: null } : { singerId: next.singerId, singerName: next.singerName };
+    const partner = next.partnerId ? this.members.get(next.partnerId) : undefined;
+    this.stage = nextAway
+      ? { ...EMPTY_STAGE }
+      : {
+          singerId: next.singerId,
+          singerName: next.singerName,
+          partnerId: partner && !partner.away ? next.partnerId : null,
+          partnerName: partner && !partner.away ? next.partnerName : null,
+        };
     const durationSec = next.song.durationSec;
     this.queue.setCurrent({
       entry: next,
@@ -321,7 +391,84 @@ export class RoomState {
       singerAwayUntilMs: nextAway ? this.members.get(next.singerId)!.awayUntilMs : null,
       kept: false,
     });
-    return this.withSkip({ playback: true, stage: true, queue: true });
+    return this.withSkip({ playback: true, stage: true, queue: true, ...(tell.length ? { tell } : {}) });
+  }
+
+  /* ----- adding songs, solo or as a duet invite (S-07..S-11) ----- */
+
+  /** Queues a song for `userId`; with `partnerId`, also sends that member a 30 s duet invite. */
+  addSong(song: SongRef, userId: string, partnerId?: string): { ok: true; entryId: string; effects: Effects } | { ok: false; error: string } {
+    const m = this.members.get(userId);
+    if (!m) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    let invite: { toId: string; toName: string; expiresAtMs: number } | null = null;
+    if (partnerId) {
+      const p = this.members.get(partnerId);
+      if (partnerId === userId) return { ok: false, error: 'Hãy mời một người khác hát cùng' };
+      if (!p || p.away) return { ok: false, error: 'Người này không còn trong phòng' };
+      if (!p.invites) return { ok: false, error: `${p.displayName} đang tắt nhận lời mời song ca` };
+      invite = { toId: partnerId, toName: p.displayName, expiresAtMs: this.now() + DUET_INVITE_MS };
+    }
+    const added = this.queue.add(song, userId, m.displayName, this.now(), invite);
+    if (!added.ok) return added;
+    const effects: Effects = mergeEffects({ queue: true }, this.startTurnIfIdle());
+    // If the song started at once, the invite already lapsed inside advance(); otherwise send it.
+    const pending = this.queue.state().entries.find((e) => e.id === added.entryId);
+    if (pending?.invite) {
+      effects.invite = {
+        toId: pending.invite.toId,
+        invite: {
+          entryId: pending.id,
+          title: song.title,
+          fromName: m.displayName,
+          position: this.queue.position(pending.id),
+          expiresAtMs: pending.invite.expiresAtMs,
+        },
+      };
+    }
+    return { ok: true, entryId: added.entryId, effects };
+  }
+
+  answerInvite(userId: string, entryId: string, yes: boolean): { ok: true; effects: Effects } | { ok: false; error: string } {
+    const r = this.queue.answerInvite(entryId, userId, yes);
+    if (!r.ok) return r;
+    const me = this.members.get(userId)?.displayName ?? 'Bạn ấy';
+    const text = yes ? `${me} đã đồng ý song ca “${r.entry.song.title}”` : `${me} từ chối song ca — bài vẫn để bạn hát một mình`;
+    return { ok: true, effects: { queue: true, tell: [{ userId: r.entry.singerId, text }] } };
+  }
+
+  cancelInvite(userId: string, entryId: string): { ok: true; effects: Effects } | { ok: false; error: string } {
+    const r = this.queue.cancelInvite(entryId, userId);
+    return r.ok ? { ok: true, effects: { queue: true } } : r;
+  }
+
+  setInvitesOpen(userId: string, open: boolean): Effects {
+    const m = this.members.get(userId);
+    if (!m || m.invites === open) return {};
+    m.invites = open;
+    return { presence: true };
+  }
+
+  /* ----- everyone's voice (VC-01, VC-10) and room effects (VC-04) ----- */
+
+  setMicMode(userId: string, mode: MicMode): { ok: true; effects: Effects } | { ok: false; error: string } {
+    const m = this.members.get(userId);
+    if (!m) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    if (m.mic === mode) return { ok: true, effects: {} };
+    if (mode === 'open') {
+      const open = [...this.members.values()].filter((x) => x !== m && x.mic === 'open').length;
+      if (open >= MAX_OPEN_MICS) return { ok: false, error: `Đã có ${MAX_OPEN_MICS} người mở mic — giữ V (hoặc nút 🎙️) để nói nhé` };
+    }
+    m.mic = mode;
+    return { ok: true, effects: { presence: true } };
+  }
+
+  sendFx(userId: string, kind: FxKind): { ok: true; effects: Effects } | { ok: false; error: string } {
+    const m = this.members.get(userId);
+    if (!m) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const now = this.now(), last = m.fxAt[kind] ?? -Infinity;
+    if (now - last < FX_COOLDOWN_MS[kind]) return { ok: false, error: 'Chậm lại một chút nhé' };
+    m.fxAt[kind] = now;
+    return { ok: true, effects: { fx: { userId, kind } } };
   }
 
   /** Adds `skip: true` only when the skip numbers changed, so callers broadcast them too. */
@@ -359,29 +506,38 @@ export class RoomState {
   tick(now: number): Effects {
     // N-12: members away longer than the grace leave for good, with their songs and their vote.
     let swept = false;
+    const tell: { userId: string; text: string }[] = [];
     for (const [id, m] of this.members) {
       if (m.away && m.awayUntilMs !== null && m.awayUntilMs <= now) {
         this.members.delete(id);
         this.queue.removeAllOf(id);
+        for (const e of this.queue.forgetPartner(id)) {
+          if (this.members.has(e.singerId)) tell.push({ userId: e.singerId, text: `${m.displayName} đã rời phòng — bài “${e.song.title}” để bạn hát một mình` });
+        }
         this.skips.drop(id);
         swept = true;
       }
     }
-    const sweep: Effects = swept ? { presence: true, queue: true } : {};
+    // S-09: an invite nobody answered in 30 s becomes a solo entry for the inviter.
+    for (const e of this.queue.expireInvites(now)) {
+      tell.push({ userId: e.singerId, text: 'Lời mời song ca đã hết hạn — bài vẫn để bạn hát một mình' });
+      swept = true;
+    }
+    const sweep: Effects = swept ? { presence: true, queue: true, ...(tell.length ? { tell } : {}) } : {};
     // R-09: the singer dropped and nobody kept the song or took over: move on.
     const turn = this.queue.current;
     if (turn?.singerAwayUntilMs && turn.singerAwayUntilMs <= now) {
-      return { ...sweep, ...this.advance(), notice: 'Ca sĩ chưa quay lại — chuyển sang bài tiếp theo' };
+      return { ...mergeEffects(sweep, this.advance()), notice: 'Ca sĩ chưa quay lại — chuyển sang bài tiếp theo' };
     }
     // Q-07: people leaving can make the existing votes enough (4 of 8 voted, 3 others left).
     const skipped = this.skipIfVoted();
-    if (skipped) return { ...sweep, ...skipped };
+    if (skipped) return mergeEffects(sweep, skipped);
     // Y-11: the server, not each browser, decides the song is over (2 s grace for the last frames).
     const left = this.queue.current ? msUntilSongEnd(this.playback, now) : null;
     if (left !== null && left <= 0) {
       const effects = this.advance();
       const next = this.stage.singerName;
-      return { ...sweep, ...effects, notice: next ? `Hết bài — tới lượt ${next}` : 'Hết bài' };
+      return { ...mergeEffects(sweep, effects), notice: next ? `Hết bài — tới lượt ${next}` : 'Hết bài' };
     }
     return this.refreshSkip() ? { ...sweep, skip: true } : sweep;
   }

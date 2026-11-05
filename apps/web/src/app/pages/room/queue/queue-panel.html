@@ -6,7 +6,7 @@
       <span class="tag">Đang phát</span>
       <b class="title">{{ c.entry.song.title }}</b>
       <span class="who">
-        🎤 {{ c.entry.singerName }}@if (c.entry.singerId === meId()) { <small>(bạn)</small> }
+        🎤 {{ c.entry.singerName }}@if (c.entry.partnerName) { &amp; {{ c.entry.partnerName }} · song ca }@if (c.entry.singerId === meId()) { <small>(bạn)</small> }
         @if (left(); as l) { · còn {{ l }} }
       </span>
       @if (canSkip() && rt.skip(); as s) {
@@ -25,7 +25,16 @@
       @for (e of entries(); track e.id; let i = $index) {
         <li [class.mine]="e.singerId === meId()">
           <span class="pos">{{ i + 1 }}</span>
-          <span class="txt"><b>{{ e.song.title }}</b><small>{{ e.singerName }}</small></span>
+          <span class="txt">
+            <b>{{ e.song.title }}</b>
+            <small>
+              {{ e.singerName }}@if (e.partnerName) { &amp; {{ e.partnerName }} }
+              @if (e.invite) { <em> · đang chờ {{ e.invite.toName }} trả lời</em> }
+            </small>
+          </span>
+          @if (e.invite && e.singerId === meId()) {
+            <button type="button" class="undo" (click)="cancelInvite(e)">Huỷ mời</button>
+          }
           @if (e.singerId === meId()) {
             <button type="button" class="x" (click)="remove(e)" [attr.aria-label]="'Bỏ bài ' + e.song.title">✕</button>
           }
@@ -35,9 +44,22 @@
   }
 
   <form class="add" (ngSubmit)="add()">
-    <label for="qlink" class="sr">Link YouTube</label>
-    <input id="qlink" name="qlink" [(ngModel)]="link" placeholder="Dán link YouTube karaoke…" autocomplete="off" />
-    <button class="btn-main" type="submit" [disabled]="busy() || !link.trim()">Thêm bài</button>
+    <div class="line">
+      <label for="qlink" class="sr">Link YouTube</label>
+      <input id="qlink" name="qlink" [(ngModel)]="link" placeholder="Dán link YouTube karaoke…" autocomplete="off" />
+      <button class="btn-main" type="submit" [disabled]="busy() || !link.trim()">Thêm bài</button>
+    </div>
+    <div class="line who" role="radiogroup" aria-label="Ai hát">
+      <label><input type="radio" name="who" value="solo" [(ngModel)]="who" /> Hát một mình</label>
+      <label><input type="radio" name="who" value="duet" [(ngModel)]="who" [disabled]="!invitable().length" /> Mời song ca</label>
+      @if (who === 'duet') {
+        <select name="partner" [(ngModel)]="partnerId" aria-label="Mời ai">
+          <option value="">Chọn người…</option>
+          @for (m of invitable(); track m.userId) { <option [value]="m.userId">{{ m.displayName }}</option> }
+        </select>
+      }
+    </div>
   </form>
+  <label class="optout"><input type="checkbox" [checked]="!myInvitesOpen()" (change)="setInvites(!$any($event.target).checked)" /> Không nhận lời mời song ca</label>
   @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
 </section>

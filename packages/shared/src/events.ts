@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { RoomInfo, PlaybackState } from './index.js';
 import type { QueueState } from './queue.js';
 import type { SkipState } from './skip.js';
+import type { MicMode } from './party.js';
 
 /* ---------- Realtime events (Socket.IO, namespace "/rt") ---------- */
 
@@ -44,6 +45,19 @@ export const Events = {
   turnKeep: 'turn:keep',
   /** client → server: { seat } — sit somewhere else (R-11) */
   seatTake: 'seat:take',
+  /** client → server {mode}, ack: Ack. Push-to-talk or open mic (VC-01, VC-10). */
+  micMode: 'mic:mode',
+  /** client → server {kind}, ack: Ack; server → room FxEvent. Cheers now, the party layer later. */
+  fxSend: 'fx:send',
+  fx: 'fx',
+  /** server → the invited person: DuetInvite (S-08). */
+  duetInvite: 'duet:invite',
+  /** client → server {entryId, yes}, ack: Ack (S-09). */
+  duetAnswer: 'duet:answer',
+  /** client → server {entryId}, ack: Ack. The inviter takes the invite back (S-10). */
+  duetCancel: 'duet:cancel',
+  /** client → server {open}, ack: Ack. "Không nhận lời mời" (S-11). */
+  invitesSet: 'invites:set',
   /** client → server {rev, durationSec}, ack: Ack. Reports a YouTube video's duration once known (Y-11). */
   playDuration: 'play:duration',
   /** client → server {rev, code}, ack: Ack. Reports a YouTube player error so the server can skip it. */
@@ -63,6 +77,10 @@ export interface PresenceMember {
   away: boolean;
   /** Where they sit (0–15, see seats.ts); kept while on stage or away (R-13). */
   seat: number | null;
+  /** How they talk to the room (VC-01). */
+  mic: MicMode;
+  /** False when they turned duet invites off (S-11). */
+  invites: boolean;
 }
 export type PresenceList = PresenceMember[];
 
@@ -77,10 +95,16 @@ export interface ClockPong {
 export interface StageState {
   singerId: string | null;
   singerName: string | null;
+  /** The second singer of a duet (S-12). Their voice goes over the talk connections at full level. */
+  partnerId: string | null;
+  partnerName: string | null;
 }
+export const EMPTY_STAGE: StageState = { singerId: null, singerName: null, partnerId: null, partnerName: null };
 
 export const RtcSignalInput = z.object({
   to: z.string().uuid(),
+  /** sing = the singer's voice + music positions; talk = everyone's voice (Phase 4). */
+  ch: z.enum(['sing', 'talk']).default('sing'),
   data: z.union([
     z.object({ type: z.enum(['offer', 'answer']), sdp: z.string().max(20_000) }),
     z.object({ type: z.literal('ice'), candidate: z.any() }),
@@ -89,6 +113,7 @@ export const RtcSignalInput = z.object({
 export type RtcSignalData = z.infer<typeof RtcSignalInput>['data'];
 export interface RtcSignalFromServer {
   from: string;
+  ch: 'sing' | 'talk';
   data: RtcSignalData;
 }
 

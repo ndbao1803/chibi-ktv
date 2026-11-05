@@ -5,6 +5,8 @@ import { QueuePanel } from './queue/queue-panel';
 import { AuthService } from '../../core/auth.service';
 import { RealtimeService } from './realtime.service';
 import { VoiceService } from './voice/voice.service';
+import { TalkService } from './voice/talk.service';
+import { whoop } from './sounds';
 import { AudioService } from './audio.service';
 import { PlayerPanel } from './player/player-panel';
 import { KtvScene, type CameraView } from './ktv-scene';
@@ -25,12 +27,13 @@ function readLowPower(): boolean {
   imports: [PlayerPanel, QueuePanel],
   templateUrl: './room.page.html',
   styleUrl: './room.page.scss',
-  providers: [RealtimeService, VoiceService], // one connection per visit to a room
+  providers: [RealtimeService, VoiceService, TalkService], // one connection per visit to a room
 })
 export class RoomPage implements OnInit, OnDestroy {
   protected readonly auth = inject(AuthService);
   protected readonly rt = inject(RealtimeService);
   protected readonly voice = inject(VoiceService);
+  protected readonly talk = inject(TalkService);
   protected readonly audio = inject(AudioService);
   private readonly router = inject(Router);
 
@@ -45,7 +48,7 @@ export class RoomPage implements OnInit, OnDestroy {
   protected readonly count = computed(() => this.rt.members().length);
   protected readonly isSinger = computed(() => this.voice.role() === 'singer');
   /** Headphones dialog: 'sing' = go on stage now, 'prepare' = just queued, ask for the mic early (S-02). */
-  protected readonly askHeadphones = signal<'sing' | 'prepare' | null>(null);
+  protected readonly askHeadphones = signal<'sing' | 'prepare' | 'partner' | null>(null);
   protected readonly busy = signal(false);
   protected readonly actionError = signal('');
   private noticeTimer?: ReturnType<typeof setTimeout>;
@@ -59,6 +62,18 @@ export class RoomPage implements OnInit, OnDestroy {
     effect(() => this.scene?.drawScreen(this.rt.playback().song?.title ?? null, this.singerNames()));
     effect(() => this.flash(this.rt.notice()));
     effect(() => this.flash(this.voice.error()));
+    effect(() => this.flash(this.talk.error()));
+    // S-12: as the duet partner, my singing mic switches on by itself if I already answered about headphones.
+    effect(() => {
+      const partner = this.talk.iAmPartner(), kind = this.voice.headphones();
+      if (partner && kind !== null && !this.talk.partnerMicOn) void this.talk.startPartnerMic(kind).then(() => this.partnerMic.set(this.talk.partnerMicOn));
+      if (!partner) this.partnerMic.set(false);
+    });
+    this.rt.onFx = (e) => {
+      if (e.kind !== 'cheer') return;
+      this.scene?.cheer(e.userId);
+      whoop(this.audio.ctx, e.userId === this.auth.user()?.id ? 0.8 : this.talk.gainFor(e.userId));
+    };
   }
 
   ngOnInit() {
@@ -68,7 +83,9 @@ export class RoomPage implements OnInit, OnDestroy {
     if (new URLSearchParams(location.search).has('lite')) return;
     try {
       this.scene = new KtvScene(this.canvas().nativeElement);
-      this.scene.levelOf = (id) => (id === this.rt.stage().singerId ? this.voice.singerLevel() : 0);
+      this.scene.levelOf = (id) =>
+        id === this.rt.stage().singerId ? this.voice.singerLevel() : id === this.rt.stage().partnerId ? this.talk.partnerLevel(id) : 0;
+      this.scene.talkOf = (id) => this.talk.levelOf(id);
       this.scene.onLost = () => this.no3d.set(true);
       this.scene.onSeatClick = (seat) => void this.changeSeat(seat);
       this.scene.onSlow = () => {
@@ -91,6 +108,7 @@ export class RoomPage implements OnInit, OnDestroy {
   ngOnDestroy() {
     clearInterval(this.micTimer);
     clearInterval(this.nowTimer);
+    clearInterval(this.speakTimer);
     this.scene?.dispose();
     clearTimeout(this.noticeTimer);
   }
@@ -101,12 +119,45 @@ export class RoomPage implements OnInit, OnDestroy {
   }
 
   /** Who stands on the stage (one now; two for duets in Phase 4). */
-  private readonly singerIds = computed(() => (this.rt.stage().singerId ? [this.rt.stage().singerId!] : []), {
+  private readonly singerIds = computed(() => [this.rt.stage().singerId, this.rt.stage().partnerId].filter((x): x is string => !!x), {
     equal: (a, b) => a.join() === b.join(),
   });
-  private readonly singerNames = computed(() => (this.rt.stage().singerName ? [this.rt.stage().singerName!] : []), {
+  private readonly singerNames = computed(() => [this.rt.stage().singerName, this.rt.stage().partnerName].filter((x): x is string => !!x), {
     equal: (a, b) => a.join() === b.join(),
   });
+  protected readonly isPartner = computed(() => this.talk.iAmPartner());
+  /** My duet-partner mic is on. */
+  protected readonly partnerMic = signal(false);
+
+  /** S-08: the invite card's seconds left. */
+  protected readonly inviteLeft = computed(() => {
+    const inv = this.rt.invite();
+    return inv ? Math.max(0, Math.ceil((inv.expiresAtMs - this.now()) / 1000)) : 0;
+  });
+  async answerInvite(yes: boolean) {
+    const inv = this.rt.invite();
+    if (!inv) return;
+    const ack = await this.rt.answerInvite(inv.entryId, yes);
+    if (!ack.ok) this.flash(ack.error);
+    else if (yes && this.voice.headphones() === null) this.askHeadphones.set('prepare');
+  }
+
+  /** VC-04: "Hú hét". The server allows one every 3 seconds. */
+  async cheer() {
+    const ack = await this.rt.sendFx('cheer');
+    if (!ack.ok) this.flash(ack.error);
+  }
+  async leavePartner() {
+    await this.rt.leaveStage();
+  }
+
+  /** Who is talking right now (VC-07), refreshed 4 times a second for the member list. */
+  protected readonly speaking = signal<ReadonlySet<string>>(new Set());
+  private speakTimer = setInterval(() => {
+    const now = new Set(this.rt.members().filter((m) => this.talk.levelOf(m.userId) > 0.06).map((m) => m.userId));
+    const prev = this.speaking();
+    if (now.size !== prev.size || [...now].some((id) => !prev.has(id))) this.speaking.set(now);
+  }, 250);
 
   /** R-11: walk to a free seat. The server decides; if someone was faster, say so. */
   private async changeSeat(seat: number) {
@@ -159,7 +210,7 @@ export class RoomPage implements OnInit, OnDestroy {
     this.busy.set(false);
     this.voice.autoArmFailed.set(err ?? '');
   }
-  ask(mode: 'sing' | 'prepare') {
+  ask(mode: 'sing' | 'prepare' | 'partner') {
     this.askHeadphones.set(mode);
   }
 
@@ -196,6 +247,13 @@ export class RoomPage implements OnInit, OnDestroy {
   async answer(kind: HeadphoneKind) {
     const mode = this.askHeadphones();
     this.askHeadphones.set(null);
+    if (mode === 'partner') {
+      this.voice.headphones.set(kind);
+      const err = await this.talk.startPartnerMic(kind);
+      this.partnerMic.set(this.talk.partnerMicOn);
+      if (err) this.flash(`Không mở được micro (${err}).`);
+      return;
+    }
     this.busy.set(true);
     // 'prepare' only asks for permission now. If my turn already began meanwhile, sing straight away.
     const err = mode === 'prepare' && !this.isSinger() ? await this.voice.prepareMic(kind) : await this.voice.startSinging(kind);

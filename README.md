@@ -2,7 +2,7 @@
 
 A 3D karaoke room for friends: chibi avatars on a neon KTV sofa, a synced YouTube video, one or two singers on stage, and everyone else cheering. Free to run.
 
-This repository covers **Phases 0–3** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, the hard part (everyone hears the song in step, and listeners hear the singer on the beat), and a real song queue with turns. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
+This repository covers **Phases 0–4** of the [build plan](https://claude.ai/artifact/LjiLdQTz1dMBAry5duejm7): accounts, rooms, the 3D room, the hard part (everyone hears the song in step, and listeners hear the singer on the beat), and a real song queue with turns. The full requirements are in the [requirements doc](https://claude.ai/artifact/V5EHAsxFvTYYmevnu7bpL3).
 
 ## What works now
 
@@ -141,6 +141,14 @@ Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length
 - **Camera:** **Cả phòng**, **Sân khấu**, **Chỗ tôi** (from your seat). Drag to look around.
 - **Tiết kiệm pin:** hides the fairy lights, light cones and balloons and lowers the resolution. Phones start with it on, and it switches itself on if the room drops under ~28 fps.
 
+**Phase 4 (everyone's voice and duets):**
+
+- **Talk any time:** hold **V** or the 🎙️ button (push-to-talk), or tick **Mic mở** (open mic, sends only while you speak; up to 8 open mics per room). Echo cancelling is on for talking, so music from your speakers doesn't come back.
+- **Mixing:** during a song the audience is at 30% under the singer; move **Khán giả khi hát** to change it for yourself. Singers hear the audience at 15%, or tick **Tắt tiếng khán giả**. 🔊/🔇 next to a name mutes that person for you only. A ring glows around whoever is talking.
+- **📣 Hú hét:** a cheer everyone hears (at the audience level), and your chibi throws its arms up. One every 3 seconds.
+- **Duets:** when adding a song pick **Mời song ca** and a friend. They get a card with **Đồng ý / Từ chối** and 30 seconds; the queue shows "đang chờ … trả lời" and you can **Huỷ mời**. Yes: both of you go on stage under two spotlights, each with your own mic. No answer: you sing it alone. **Không nhận lời mời song ca** turns invites off.
+- How it works: the lead singer's voice and music timing travel as before; everyone else's voice (and the duet partner's singing) uses a second set of peer-to-peer connections, one per pair of people. `pnpm test:voice` checks all of this with three browsers.
+
 ## Try it on two laptops (checklist)
 
 1. Laptop A creates a room, laptop B opens the invite link (different networks if you can, e.g. one on 4G hotspot).
@@ -149,8 +157,8 @@ Optional settings in `apps/server/.env`: `YOUTUBE_API_KEY` (checks title, length
 4. B presses **Bỏ qua bài này** → B's song starts, B's mic switches on.
 5. B refreshes the page mid-song → A sees "Bình mất kết nối…", B comes back on stage within a few seconds.
 
-## Next: Phase 4 (everyone's voice and duets)
+## Next: Phase 5 (the party layer)
 
-- Everyone can talk (push-to-talk V or open mic), mixed at 30% under the singer during songs, "Khán giả" slider, "Hú hét"
-- Speaking rings, personal mute
-- Duet invites with yes/no and two singers on stage
+- Props and shaking (maracas, tambourine, lightstick, clap), reactions, chat with bubbles
+- Cheers, flowers, crowd dance, lightstick wave, fart prank
+- Hype meter, star rating and the score screen

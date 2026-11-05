@@ -1,4 +1,5 @@
 import { AWAY_GRACE_MS, RoomState } from './room-state.js';
+import { DUET_INVITE_MS } from '@ktv/shared';
 import { START_LEAD_MS, expectedPosition } from '@ktv/shared';
 
 const song = { kind: 'test' as const, id: 'click' as const, title: 'Click', durationSec: 600 };
@@ -15,13 +16,13 @@ describe('RoomState', () => {
     expect(r.size).toBe(2);
     expect(r.removeSocket('u1', 's1')).toBeNull(); // one tab left
     expect(r.removeSocket('u1', 's2')).toEqual({ presence: true });
-    expect(r.presence()).toEqual([
+    expect(r.presence()).toMatchObject([
       { userId: 'u1', displayName: 'Tuấn', away: true, seat: 6 },
       { userId: 'u2', displayName: 'Thảo Vy', away: false, seat: 4 },
     ]);
     expect(r.tick(now + AWAY_GRACE_MS - 1)).toEqual({});
     expect(r.tick(now + AWAY_GRACE_MS)).toMatchObject({ presence: true, queue: true });
-    expect(r.presence()).toEqual([{ userId: 'u2', displayName: 'Thảo Vy', away: false, seat: 4 }]);
+    expect(r.presence()).toMatchObject([{ userId: 'u2', displayName: 'Thảo Vy', away: false, seat: 4 }]);
   });
 
   it('coming back within the grace keeps you in the room as if nothing happened', () => {
@@ -30,7 +31,7 @@ describe('RoomState', () => {
     r.removeSocket('u1', 's1');
     r.addSocket('u1', 'Tuấn', 's9');
     expect(r.tick(now + AWAY_GRACE_MS * 5)).toEqual({});
-    expect(r.presence()).toEqual([{ userId: 'u1', displayName: 'Tuấn', away: false, seat: 6 }]);
+    expect(r.presence()).toMatchObject([{ userId: 'u1', displayName: 'Tuấn', away: false, seat: 6 }]);
   });
 
   it('starts a new song after a short lead time, pauses and resumes at the same spot', () => {
@@ -67,7 +68,7 @@ describe('RoomState', () => {
     expect(effects).toEqual({ playback: true, stage: true, queue: true });
     expect(r.playback.song).toEqual(song);
     expect(r.playback.startedAtServerMs).toBe(now + START_LEAD_MS);
-    expect(r.stage).toEqual({ singerId: 'u1', singerName: 'Tuấn' });
+    expect(r.stage).toMatchObject({ singerId: 'u1', singerName: 'Tuấn', partnerId: null });
     expect(r.queue.current?.entry.singerId).toBe('u1');
   });
 
@@ -197,7 +198,7 @@ describe('RoomState vote-skip (Q-07)', () => {
     expect(idle.vote('u1', true)).toEqual({ ok: false, error: 'Chưa có bài nào đang phát' });
 
     const alone = room(1);
-    alone.stage = { singerId: null, singerName: null }; // e.g. the singer stepped away (phase 05)
+    alone.stage = { singerId: null, singerName: null, partnerId: null, partnerName: null }; // e.g. the singer stepped away (phase 05)
     alone.addSocket('u9', 'Khách', 's9');
     alone.removeSocket('u9', 's9');
     expect(alone.vote('u1', true).ok).toBe(true); // with an empty stage, everyone present is eligible
@@ -401,5 +402,107 @@ describe('RoomState seats (R-04, R-11..R-13)', () => {
     r.tick(now + AWAY_GRACE_MS);
     r.addSocket('c', 'Chi', 's3');
     expect(seatOf(r, 'c')).toBe(6); // freed, and first in the fill order again
+  });
+});
+
+describe('RoomState duets (S-07..S-12)', () => {
+  let now = 50_000_000;
+  const yt = (n: number) => ({ kind: 'youtube' as const, id: `vid0000000${n}`, title: `Bài ${n}`, durationSec: 200 });
+  function room() {
+    now = 50_000_000;
+    const r = new RoomState('ABC123', () => now);
+    r.addSocket('a', 'An', 'sa');
+    r.addSocket('b', 'Bình', 'sb');
+    r.addSocket('c', 'Chi', 'sc');
+    r.addSong(yt(0), 'c', undefined); // Chi is singing, so the next songs wait in the queue
+    return r;
+  }
+
+  it('an invite goes to the partner only, with the song, the inviter and its place in the queue', () => {
+    const r = room();
+    const added = r.addSong(yt(1), 'a', 'b');
+    if (!added.ok) throw new Error(added.error);
+    expect(added.effects.invite).toEqual({
+      toId: 'b',
+      invite: { entryId: added.entryId, title: 'Bài 1', fromName: 'An', position: 1, expiresAtMs: now + DUET_INVITE_MS },
+    });
+    expect(r.queue.state().entries[0].invite).toMatchObject({ toId: 'b', toName: 'Bình' });
+  });
+
+  it('yes makes it a duet and tells the inviter; no keeps it solo', () => {
+    const r = room();
+    const one = r.addSong(yt(1), 'a', 'b');
+    if (!one.ok) throw new Error();
+    expect(r.answerInvite('c', one.entryId, true)).toEqual({ ok: false, error: 'Lời mời này không còn nữa' });
+    expect(r.answerInvite('b', one.entryId, true)).toEqual({
+      ok: true,
+      effects: { queue: true, tell: [{ userId: 'a', text: 'Bình đã đồng ý song ca “Bài 1”' }] },
+    });
+    expect(r.queue.state().entries[0]).toMatchObject({ partnerId: 'b', partnerName: 'Bình', invite: null });
+    const two = r.addSong(yt(2), 'b', 'a');
+    if (!two.ok) throw new Error();
+    expect(r.answerInvite('a', two.entryId, false)).toMatchObject({ effects: { tell: [{ userId: 'b', text: 'An từ chối song ca — bài vẫn để bạn hát một mình' }] } });
+  });
+
+  it('no answer in 30 s: solo, and the inviter is told; the inviter can also cancel', () => {
+    const r = room();
+    r.addSong(yt(1), 'a', 'b');
+    expect(r.tick(now + DUET_INVITE_MS)).toMatchObject({ queue: true, tell: [{ userId: 'a' }] });
+    expect(r.queue.state().entries[0].invite).toBeNull();
+    const again = r.addSong(yt(2), 'a', 'b');
+    if (!again.ok) throw new Error();
+    expect(r.cancelInvite('b', again.entryId)).toEqual({ ok: false, error: 'Không có lời mời nào để huỷ' });
+    expect(r.cancelInvite('a', again.entryId)).toEqual({ ok: true, effects: { queue: true } });
+  });
+
+  it('refuses inviting yourself, someone who left, or someone who turned invites off (S-11)', () => {
+    const r = room();
+    expect(r.addSong(yt(1), 'a', 'a')).toMatchObject({ ok: false });
+    r.setInvitesOpen('b', false);
+    expect(r.addSong(yt(1), 'a', 'b')).toEqual({ ok: false, error: 'Bình đang tắt nhận lời mời song ca' });
+    expect(r.presence().find((m) => m.userId === 'b')?.invites).toBe(false);
+  });
+
+  it('a duet turn puts both on stage; the partner can step down alone and cannot vote to skip', () => {
+    const r = room();
+    const one = r.addSong(yt(1), 'a', 'b');
+    if (!one.ok) throw new Error();
+    r.answerInvite('b', one.entryId, true);
+    r.leaveStage('c'); // Chi finishes
+    expect(r.stage).toEqual({ singerId: 'a', singerName: 'An', partnerId: 'b', partnerName: 'Bình' });
+    expect(r.vote('b', true)).toMatchObject({ ok: false });
+    expect(r.skipState().needed).toBe(1); // only Chi votes
+    r.leaveStage('b');
+    expect(r.stage).toMatchObject({ singerId: 'a', partnerId: null });
+  });
+
+  it('an invite still open when the song starts lapses: solo, and the inviter is told', () => {
+    const r = room();
+    r.addSong(yt(1), 'a', 'b');
+    const fx = r.leaveStage('c');
+    expect(fx.tell).toEqual([{ userId: 'a', text: 'Bình chưa trả lời — bạn hát một mình bài này nhé' }]);
+    expect(r.stage).toMatchObject({ singerId: 'a', partnerId: null });
+  });
+});
+
+describe('RoomState mics and cheers (VC-01, VC-04, VC-10)', () => {
+  it('allows at most 8 open mics; push-to-talk is always fine', () => {
+    const r = new RoomState('ABC123');
+    for (let i = 0; i < 10; i++) r.addSocket(`u${i}`, `U${i}`, `s${i}`);
+    for (let i = 0; i < 8; i++) expect(r.setMicMode(`u${i}`, 'open')).toMatchObject({ ok: true });
+    expect(r.setMicMode('u8', 'open')).toMatchObject({ ok: false });
+    expect(r.setMicMode('u8', 'ptt')).toEqual({ ok: true, effects: { presence: true } });
+    expect(r.presence().find((m) => m.userId === 'u8')?.mic).toBe('ptt');
+  });
+
+  it('one cheer per 3 seconds per person', () => {
+    let now = 1000;
+    const r = new RoomState('ABC123', () => now);
+    r.addSocket('u1', 'Tuấn', 's1');
+    expect(r.sendFx('u1', 'cheer')).toEqual({ ok: true, effects: { fx: { userId: 'u1', kind: 'cheer' } } });
+    now += 2999;
+    expect(r.sendFx('u1', 'cheer')).toMatchObject({ ok: false });
+    now += 1;
+    expect(r.sendFx('u1', 'cheer')).toMatchObject({ ok: true });
   });
 });

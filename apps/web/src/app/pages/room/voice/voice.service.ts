@@ -9,6 +9,8 @@ import { BLUETOOTH_LAG_SEC, ema, MANUAL_OFFSET_LIMIT_MS } from '../sync/sync-mat
 import { tuneOpus } from './opus';
 
 interface Peer {
+  /** out = I am the singer calling a listener; in = a singer calling me. */
+  dir: 'out' | 'in';
   pc: RTCPeerConnection;
   dc?: RTCDataChannel;
   pendingIce: RTCIceCandidateInit[];
@@ -126,6 +128,7 @@ export class VoiceService implements OnDestroy {
   private arming = false;
 
   constructor() {
+    void this.ice(); // fetch early
     this.rt.onSignal = (m) => void this.onSignal(m);
     effect(() => {
       const stage = this.rt.stage();
@@ -280,7 +283,8 @@ export class VoiceService implements OnDestroy {
     if (stage.singerId === me) {
       if (!this.mic) return; // stage taken in another tab; this tab has no mic
       const others = new Set(members.map((m) => m.userId).filter((id) => id !== me));
-      for (const id of [...this.peers.keys()]) if (!others.has(id)) this.close(id);
+      // Drop leftovers from when I was listening to the previous singer, then call everyone.
+      for (const [id, p] of [...this.peers]) if (!others.has(id) || p.dir === 'in') this.close(id);
       for (const id of others) if (!this.peers.has(id)) await this.callListener(id);
     } else {
       // Not singing: keep only the connection from the current singer.
@@ -304,9 +308,13 @@ export class VoiceService implements OnDestroy {
 
   /** Singer side: one connection per listener, mic + an unreliable data channel for positions. */
   private async callListener(to: string) {
-    const pc = new RTCPeerConnection({ iceServers: await this.ice() });
-    const peer: Peer = { pc, pendingIce: [] };
+    // Register before the first await: two quick reconciles must not call the same listener twice
+    // (that left a second answer arriving on a finished connection: "wrong state: stable").
+    const pc = new RTCPeerConnection({ iceServers: this.iceServers ?? [{ urls: 'stun:stun.cloudflare.com:3478' }] });
+    const peer: Peer = { dir: 'out', pc, pendingIce: [] };
     this.peers.set(to, peer);
+    pc.setConfiguration({ iceServers: await this.ice() }); // allowed: nothing gathered yet
+    if (this.peers.get(to) !== peer) return; // closed while waiting
     for (const t of this.mic!.getAudioTracks()) {
       const sender = pc.addTrack(t, this.mic!);
       const params = sender.getParameters();
@@ -335,6 +343,7 @@ export class VoiceService implements OnDestroy {
     const peer = this.peers.get(from);
     if (!peer) return;
     if (data.type === 'answer') {
+      if (peer.pc.signalingState !== 'have-local-offer') return; // duplicate or late answer
       await peer.pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
       for (const c of peer.pendingIce.splice(0)) await peer.pc.addIceCandidate(c).catch(() => {});
     } else if (data.type === 'ice') {
@@ -346,7 +355,7 @@ export class VoiceService implements OnDestroy {
   /** Listener side: play the singer's voice, read their positions. */
   private async answerSinger(from: string, sdp: string) {
     const pc = new RTCPeerConnection({ iceServers: await this.ice() });
-    const peer: Peer = { pc, pendingIce: [] };
+    const peer: Peer = { dir: 'in', pc, pendingIce: [] };
     this.peers.set(from, peer);
     pc.onicecandidate = (e) => e.candidate && this.rt.signal(from, { type: 'ice', candidate: e.candidate.toJSON() });
     pc.ontrack = (e) => {
@@ -447,7 +456,9 @@ export class VoiceService implements OnDestroy {
     this.micMeter = undefined;
     this.mic?.getTracks().forEach((t) => t.stop());
     this.mic = undefined;
-    this.closeAll();
+    // Close my calls to listeners, but keep the next singer's call to me: when one singer hands
+    // straight over to the next, their offer can arrive before this runs.
+    for (const [id, p] of [...this.peers]) if (p.dir === 'out') this.close(id);
     this.updateCounts();
   }
 }

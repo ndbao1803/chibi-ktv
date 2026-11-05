@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { io, type Socket } from 'socket.io-client';
 import type { INestApplication } from '@nestjs/common';
-import { Events, RT_NAMESPACE, type JoinAck, type PlaybackState, type PresenceList, type QueueState, type RoomInfo, type StageState } from '@ktv/shared';
+import { Events, RT_NAMESPACE, type JoinAck, type PlaybackState, type PresenceList, type QueueState, type RoomInfo, type StageState, type DuetInvite, type FxEvent } from '@ktv/shared';
 import { cookieFrom, startTestApp } from './helpers.js';
 
 /**
@@ -81,7 +81,7 @@ describe('Queue and turns (e2e, Q-03, Q-05, Q-06, R-09, N-12)', () => {
     const before = (await b.emitWithAck(Events.roomJoin, { code })) as JoinAck;
     const stageOpen = once<StageState>(b, Events.stageState);
     a.close();
-    expect(await stageOpen).toEqual({ singerId: null, singerName: null });
+    expect(await stageOpen).toMatchObject({ singerId: null, singerName: null });
     const during = (await b.emitWithAck(Events.roomJoin, { code })) as JoinAck;
     if (!before.ok || !during.ok) throw new Error('join failed');
     expect(during.playback).toEqual(before.playback);
@@ -115,5 +115,47 @@ describe('Queue and turns (e2e, Q-03, Q-05, Q-06, R-09, N-12)', () => {
     expect((await moved).find((m) => m.displayName === 'An')?.seat).toBe(1);
     expect(await b.emitWithAck(Events.seatTake, { seat: 1 })).toEqual({ ok: false, error: 'An vừa ngồi vào ghế này' });
     expect(await b.emitWithAck(Events.seatTake, { seat: 99 })).toEqual({ ok: false, error: 'Ghế không hợp lệ' });
+  });
+
+  it('duet: the invite reaches only the partner, yes puts both on stage; cheers reach everyone (S-07..S-12, VC-04)', async () => {
+    const [ca, cb, cc] = await Promise.all([
+      signup('duet-an@example.com', 'An'),
+      signup('duet-binh@example.com', 'Bình'),
+      signup('duet-chi@example.com', 'Chi'),
+    ]);
+    const code = ((await http.post('/api/rooms').set('Cookie', ca).send({})).body as RoomInfo).code;
+    const [a, b, c] = await Promise.all([connect(ca), connect(cb), connect(cc)]);
+    for (const s of [a, b, c]) await s.emitWithAck(Events.roomJoin, { code });
+    const presence = (await c.emitWithAck(Events.roomJoin, { code })) as JoinAck;
+    if (!presence.ok) throw new Error();
+    await c.emitWithAck(Events.queueAdd, { link: link('cccccccccc9') }); // Chi sings first
+
+    // Turning invites off and on again broadcasts the member list, which carries Bình's id (S-11).
+    const pres = once<PresenceList>(a, Events.roomPresence);
+    await b.emitWithAck(Events.invitesSet, { open: false });
+    const list = await pres;
+    expect(list.find((m) => m.displayName === 'Bình')?.invites).toBe(false);
+    const binhId = list.find((m) => m.displayName === 'Bình')!.userId;
+    await b.emitWithAck(Events.invitesSet, { open: true });
+    let chiGotInvite = false;
+    c.once(Events.duetInvite, () => (chiGotInvite = true));
+    const invited = once<DuetInvite>(b, Events.duetInvite);
+    const added = (await a.emitWithAck(Events.queueAdd, { link: link('aaaaaaaaaa9'), partnerId: binhId })) as { ok: boolean; entryId: string };
+    const inv = await invited;
+    expect(inv).toMatchObject({ entryId: added.entryId, fromName: 'An', position: 1 });
+
+    const told = once<string>(a, 'room:notice');
+    expect(await b.emitWithAck(Events.duetAnswer, { entryId: inv.entryId, yes: true })).toEqual({ ok: true });
+    expect(await told).toMatch(/^Bình đã đồng ý song ca/);
+    expect(chiGotInvite).toBe(false);
+
+    const duet = once<StageState>(c, Events.stageState);
+    await c.emitWithAck(Events.stageLeave);
+    expect(await duet).toMatchObject({ singerName: 'An', partnerName: 'Bình' });
+
+    const cheer = once<FxEvent>(a, Events.fx);
+    expect(await c.emitWithAck(Events.fxSend, { kind: 'cheer' })).toEqual({ ok: true });
+    expect((await cheer).kind).toBe('cheer');
+    expect(await c.emitWithAck(Events.fxSend, { kind: 'cheer' })).toMatchObject({ ok: false });
   });
 });

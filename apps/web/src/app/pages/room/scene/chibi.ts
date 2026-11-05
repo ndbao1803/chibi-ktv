@@ -53,6 +53,8 @@ export class Chibi {
   readonly ring: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>;
   private readonly phase = Math.random() * 10;
   private away = false;
+  /** Seconds since a cheer started (arms up, mouth wide: VC-04); negative when not cheering. */
+  private cheerT = -1;
 
   mode: ChibiMode = 'seated';
   /** Where they sit when not on stage (the seat's spot and height). */
@@ -183,6 +185,11 @@ export class Chibi {
     });
   }
 
+  /** "Hú hét": both arms up and a wide-open mouth for about a second. */
+  cheer() {
+    this.cheerT = 0;
+  }
+
   /** Name tags shrink up close and grow far away, so they stay readable. */
   scaleTag(cameraDistance: number, visible = true) {
     const k = Math.min(1.25, Math.max(0.6, cameraDistance * 0.11));
@@ -219,6 +226,16 @@ export class Chibi {
       this.legs.forEach((l) => (l.rotation.x = 0));
       const v = this.level();
       this.mouth.scale.set(1 - v * 0.2, 1 + v * 4, 1);
+      return;
+    }
+    if (this.cheerT >= 0) {
+      this.cheerT += dt;
+      const w = Math.sin(this.cheerT * 14) * 0.15;
+      L.rotation.set(-2.9 + w, 0, -0.5);
+      R.rotation.set(-2.9 - w, 0, 0.5);
+      this.mouth.scale.set(0.8, 3.4, 1);
+      if (this.cheerT > 1.1) this.cheerT = -1;
+      if (this.mode === 'seated') this.legs.forEach((l) => (l.rotation.x = -Math.PI / 2));
       return;
     }
     // Seated: head bobs to the beat, arms rest (A-03).

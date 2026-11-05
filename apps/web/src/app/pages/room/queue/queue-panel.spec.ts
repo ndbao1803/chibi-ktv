@@ -6,14 +6,14 @@ import { RealtimeService } from '../realtime.service';
 import { formatLeft, QueuePanel } from './queue-panel';
 
 const song = (n: number) => ({ kind: 'youtube' as const, id: `vid0000000${n}`, title: `Bài ${n}`, durationSec: 200 });
-const entry = (n: number, singerId: string, singerName: string) => ({ id: `e${n}`, song: song(n), singerId, singerName, addedAtMs: n });
+const entry = (n: number, singerId: string, singerName: string) => ({ id: `e${n}`, song: song(n), singerId, singerName, addedAtMs: n, partnerId: null, partnerName: null, invite: null });
 
 function setup(queue: QueueState, meId = 'me', members = 3) {
   const rt = {
     queue: signal<QueueState | null>(queue),
     skip: signal<SkipState | null>({ have: 1, needed: 2, voterNames: ['Khoa'], rev: 1 }),
     playback: signal({ ...EMPTY_PLAYBACK, paused: false }),
-    members: signal(Array.from({ length: members }, (_, i) => ({ userId: `u${i}`, displayName: `U${i}`, away: false }))),
+    members: signal(Array.from({ length: members }, (_, i) => ({ userId: `u${i}`, displayName: `U${i}`, away: false, seat: i, mic: 'off' as const, invites: true }))),
     serverNow: () => 1_000_000,
     addToQueue: async () => ({ ok: true }),
     removeFromQueue: async () => ({ ok: true }),
@@ -60,6 +60,16 @@ describe('QueuePanel', () => {
     expect(setup({ current: turn('u1', 'Tuấn'), entries: [], rev: 1 }).querySelector('.skip')?.textContent).toContain('(1/2)');
     TestBed.resetTestingModule();
     expect(setup({ current: turn('me', 'Tôi'), entries: [], rev: 1 }).querySelector('.skip')).toBeNull();
+  });
+
+  it('shows a duet with both names, and a pending invite with a cancel button for the inviter (S-09, S-10)', () => {
+    const duet = { ...entry(1, 'me', 'Tôi'), partnerId: 'u1', partnerName: 'Tuấn' };
+    const pending = { ...entry(2, 'me', 'Tôi'), invite: { toId: 'u2', toName: 'Vy', expiresAtMs: 2_000_000 } };
+    const el = setup({ current: null, entries: [duet, pending], rev: 1 });
+    const rows = el.querySelectorAll('.list li');
+    expect(rows[0].textContent).toContain('Tôi & Tuấn');
+    expect(rows[1].textContent).toContain('đang chờ Vy trả lời');
+    expect(rows[1].querySelector('.undo')).not.toBeNull();
   });
 
   it('says what to do when the room is idle', () => {

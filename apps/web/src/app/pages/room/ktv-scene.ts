@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { PresenceList } from '@ktv/shared';
 import { Chibi, SHARED_GEOMETRY } from './scene/chibi';
-import { basic, C, disposeTree, label, mesh, REDUCED_MOTION } from './scene/kit';
+import { basic, C, canvasTexture, disposeTree, label, mesh, REDUCED_MOTION } from './scene/kit';
 import { RoomDecor } from './scene/room-decor';
 import { SEATS, seatRoute, STAGE, stageRoute, stageSlot } from './scene/seats';
 
@@ -37,6 +37,9 @@ export class KtvScene {
   private readonly decor = new RoomDecor();
   private readonly chibis = new Map<string, { c: Chibi; seat: number | null }>();
   private readonly markers: SeatMarker[] = [];
+  /** Emoji floating up from someone's head (cheers now, reactions in Phase 5). */
+  private readonly floats: { s: THREE.Sprite; t: number; vx: number }[] = [];
+  private readonly emojiTex = new Map<string, THREE.CanvasTexture>();
   private readonly resize = new ResizeObserver(() => this.fit());
   private readonly ray = new THREE.Raycaster();
   private frame = 0;
@@ -159,6 +162,35 @@ export class KtvScene {
     this.refreshMarkers();
   }
 
+  /** VC-04: "Hú hét" — arms up and a 📣 floating from their head. */
+  cheer(userId: string) {
+    this.chibis.get(userId)?.c.cheer();
+    this.react(userId, '📣');
+  }
+
+  /** An emoji floats up from someone's head and fades (M-06). */
+  react(userId: string, emoji: string) {
+    const c = this.chibis.get(userId)?.c;
+    if (!c || this.floats.length > 60) return;
+    let tex = this.emojiTex.get(emoji);
+    if (!tex) {
+      tex = canvasTexture(128, 128, (g) => {
+        g.font = '96px serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(emoji, 64, 70);
+      }).tex;
+      this.emojiTex.set(emoji, tex);
+    }
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    c.head.getWorldPosition(s.position);
+    s.position.add(new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.45, 0));
+    s.scale.set(0.42, 0.42, 1);
+    s.renderOrder = 11;
+    this.scene.add(s);
+    this.floats.push({ s, t: 0, vx: (Math.random() - 0.5) * 0.25 });
+  }
+
   drawScreen(title: string | null, singerNames: string[]) {
     this.decor.drawScreen(title, singerNames);
   }
@@ -198,6 +230,7 @@ export class KtvScene {
     this.resize.disconnect();
     this.controls.dispose();
     for (const { c } of this.chibis.values()) c.dispose();
+    this.emojiTex.forEach((t) => t.dispose());
     disposeTree(this.scene, SHARED_GEOMETRY);
     SHARED_GEOMETRY.forEach((g) => g.dispose());
     this.renderer.dispose();
@@ -330,6 +363,18 @@ export class KtvScene {
     for (const [id, { c }] of this.chibis) {
       c.update(t, dt);
       c.scaleTag(this.camera.position.distanceTo(c.root.position), !(this.view === 'me' && id === this.meId));
+    }
+    for (let i = this.floats.length - 1; i >= 0; i--) {
+      const f = this.floats[i];
+      f.t += dt;
+      f.s.position.y += dt * 0.7;
+      f.s.position.x += f.vx * dt;
+      f.s.material.opacity = Math.max(0, 1 - f.t / 1.8);
+      if (f.t > 1.8) {
+        f.s.removeFromParent();
+        f.s.material.dispose();
+        this.floats.splice(i, 1);
+      }
     }
     const pulse = 0.45 + Math.sin(t * 4) * 0.35;
     for (const m of this.markers) if (m.group.visible) m.ring.material.opacity = pulse;

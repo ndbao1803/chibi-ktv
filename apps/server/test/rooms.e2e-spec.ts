@@ -172,7 +172,7 @@ describe('Playback, stage and WebRTC relay (e2e)', () => {
   it('one singer at a time, shared with the room', async () => {
     const seen = once<StageState>(b, Events.stageState);
     expect(await a.emitWithAck(Events.stageTake)).toEqual({ ok: true });
-    expect(await seen).toEqual({ singerId: expect.any(String), singerName: 'Ca sĩ' });
+    expect(await seen).toMatchObject({ singerId: expect.any(String), singerName: 'Ca sĩ' });
     expect(await b.emitWithAck(Events.stageTake)).toEqual({ ok: false, error: 'Ca sĩ đang hát' });
   });
 
@@ -187,7 +187,7 @@ describe('Playback, stage and WebRTC relay (e2e)', () => {
   it('frees the stage at once when the singer disconnects (R-09: the music itself keeps going)', async () => {
     const seen = once<StageState>(b, Events.stageState);
     a.close();
-    expect(await seen).toEqual({ singerId: null, singerName: null });
+    expect(await seen).toMatchObject({ singerId: null, singerName: null });
   });
 
   it('gives free STUN servers to logged-in users', async () => {

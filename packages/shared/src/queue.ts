@@ -9,13 +9,22 @@ export interface QueueEntry {
   singerId: string;
   singerName: string;
   addedAtMs: number;
+  /** Duet partner once they said yes (S-09). */
+  partnerId: string | null;
+  partnerName: string | null;
+  /** An open duet invite, waiting for an answer (S-10). */
+  invite: { toId: string; toName: string; expiresAtMs: number } | null;
 }
 
 /** Caps so one person cannot fill the whole night (Q-05, Decided #4). */
 export const MAX_QUEUE_PER_USER = 5;
 export const MAX_QUEUE_TOTAL = 50;
 
-export const QueueAddInput = z.object({ link: z.string().trim().min(1, 'Hãy dán link YouTube').max(300) });
+export const QueueAddInput = z.object({
+  link: z.string().trim().min(1, 'Hãy dán link YouTube').max(300),
+  /** "Mời song ca": invite this member to sing it with you (S-07). */
+  partnerId: z.string().uuid().optional(),
+});
 export type QueueAddInput = z.infer<typeof QueueAddInput>;
 
 export const QueueRemoveInput = z.object({ entryId: z.string().uuid('Mã bài hát không hợp lệ') });

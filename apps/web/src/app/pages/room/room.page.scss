@@ -32,6 +32,10 @@
   li { display: flex; align-items: center; gap: 8px; font-weight: 500; flex-wrap: wrap; }
   li.me { color: var(--gold); }
   li.away { opacity: 0.5; }
+  li.talking .dot { background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+  .said, .open { font-size: 12px; }
+  .mute { margin-left: auto; background: none; border: 0; padding: 2px 4px; font-size: 13px; opacity: 0.55; }
+  .mute:hover, .mute:focus-visible, .mute[aria-pressed='true'] { opacity: 1; }
   li.away .dot { background: var(--muted); box-shadow: none; }
   small { color: var(--muted); font-weight: 400; }
   .mic { color: var(--pink); font-size: 12px; }
@@ -45,6 +49,31 @@
   padding: 12px; display: flex; flex-direction: column; gap: 10px;
 }
 .song { display: flex; gap: 6px; flex-wrap: wrap; }
+.voicebar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px;
+  .talk {
+    padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05);
+    color: var(--fg); font-weight: 600; touch-action: none; user-select: none;
+  }
+  .talk.on { border-color: var(--cyan); background: rgba(51, 225, 237, 0.18); box-shadow: 0 0 12px rgba(51, 225, 237, 0.4); }
+  .talk:disabled { opacity: 0.4; }
+  .switch { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+  .cheer { padding: 6px 10px; font-size: 12.5px; }
+  .aud { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  .aud input { width: 90px; accent-color: var(--pink); }
+  .aud b { color: var(--fg); font-variant-numeric: tabular-nums; min-width: 34px; }
+}
+.invite {
+  top: calc(80px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 6;
+  width: min(380px, calc(100% - 32px)); padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  background: var(--panel-solid); border: 1px solid var(--pink);
+  h2 { margin: 0; font-size: 16px; }
+  p { margin: 0; color: var(--muted); }
+  .bar { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--pink); transition: width 1s linear; }
+  .row { display: flex; gap: 8px; }
+  .row button { flex: 1; }
+}
 .away-banner {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--gold);
   padding: 8px 10px; border: 1px solid var(--gold); border-radius: 8px; font-variant-numeric: tabular-nums;

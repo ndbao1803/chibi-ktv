@@ -29,6 +29,12 @@ export class QueuePanel implements OnDestroy {
   readonly added = output<{ startedNow: boolean }>();
 
   protected link = '';
+  /** S-07: "Hát một mình" or "Mời song ca" with one member. */
+  protected who: 'solo' | 'duet' = 'solo';
+  protected partnerId = '';
+  /** People I can invite: present, not me, invites on (S-11). */
+  protected readonly invitable = computed(() => this.rt.members().filter((m) => m.userId !== this.meId() && !m.away && m.invites));
+  protected readonly myInvitesOpen = computed(() => this.rt.members().find((m) => m.userId === this.meId())?.invites ?? true);
   protected readonly busy = signal(false);
   /** Server rejection (blocked video, too many songs…); stays until the next attempt (E-01). */
   protected readonly error = signal('');
@@ -61,18 +67,36 @@ export class QueuePanel implements OnDestroy {
     this.error.set('');
     this.busy.set(true);
     const startedNow = !this.current();
-    const ack = await this.rt.addToQueue(link);
+    const partner = this.who === 'duet' ? this.partnerId || undefined : undefined;
+    if (this.who === 'duet' && !partner) {
+      this.busy.set(false);
+      this.error.set('Chọn một người để mời song ca');
+      return;
+    }
+    const ack = await this.rt.addToQueue(link, partner);
     this.busy.set(false);
     if (!ack.ok) {
       this.error.set(ack.error);
       return;
     }
     this.link = '';
+    this.who = 'solo';
+    this.partnerId = '';
     this.added.emit({ startedNow });
   }
 
   async remove(e: QueueEntry) {
     const ack = await this.rt.removeFromQueue(e.id);
+    if (!ack.ok) this.error.set(ack.error);
+  }
+
+  async cancelInvite(e: QueueEntry) {
+    const ack = await this.rt.cancelInvite(e.id);
+    if (!ack.ok) this.error.set(ack.error);
+  }
+
+  async setInvites(open: boolean) {
+    const ack = await this.rt.setInvitesOpen(open);
     if (!ack.ok) this.error.set(ack.error);
   }
 

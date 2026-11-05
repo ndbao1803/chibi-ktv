@@ -15,6 +15,11 @@ import {
   type RtcSignalFromServer,
   type SkipState,
   type StageState,
+  EMPTY_STAGE,
+  type DuetInvite,
+  type FxEvent,
+  type FxKind,
+  type MicMode,
 } from '@ktv/shared';
 
 export interface ClockStats {
@@ -35,7 +40,9 @@ export class RealtimeService implements OnDestroy {
   readonly room = signal<RoomInfo | null>(null);
   readonly members = signal<PresenceList>([]);
   readonly playback = signal<PlaybackState>(EMPTY_PLAYBACK);
-  readonly stage = signal<StageState>({ singerId: null, singerName: null });
+  readonly stage = signal<StageState>({ ...EMPTY_STAGE });
+  /** A duet invite for me, waiting for my answer (S-08). */
+  readonly invite = signal<DuetInvite | null>(null);
   /** The song queue and whose turn it is (Q-03, Q-05). */
   readonly queue = signal<QueueState | null>(null);
   /** Vote-skip numbers for the song playing now (Q-07). */
@@ -44,8 +51,11 @@ export class RealtimeService implements OnDestroy {
   readonly clock = signal<ClockStats | null>(null);
   /** Short messages such as "Tuấn đã tạm dừng". */
   readonly notice = signal('');
-  /** The voice service listens here for WebRTC setup messages. */
+  /** The singer's voice service and the talk service listen here for WebRTC setup messages. */
   onSignal: (m: RtcSignalFromServer) => void = () => {};
+  onTalkSignal: (m: RtcSignalFromServer) => void = () => {};
+  /** Room effects (cheers now; the party layer later). */
+  onFx: (e: FxEvent) => void = () => {};
 
   /** Best estimate of the server's clock right now. */
   serverNow(): number {
@@ -65,7 +75,9 @@ export class RealtimeService implements OnDestroy {
       if (s.rev >= (this.skip()?.rev ?? -1)) this.skip.set(s);
     });
     this.socket.on('room:notice', (msg: string) => this.notice.set(msg));
-    this.socket.on(Events.rtcSignal, (m: RtcSignalFromServer) => this.onSignal(m));
+    this.socket.on(Events.rtcSignal, (m: RtcSignalFromServer) => (m.ch === 'talk' ? this.onTalkSignal(m) : this.onSignal(m)));
+    this.socket.on(Events.duetInvite, (inv: DuetInvite) => this.invite.set(inv));
+    this.socket.on(Events.fx, (e: FxEvent) => this.onFx(e));
     this.socket.on('auth:error', (msg: string) => this.error.set(msg));
     this.socket.on('disconnect', () => this.connected.set(false));
     // On every (re)connect: measure the clock, then join the room again (N-12).
@@ -92,8 +104,26 @@ export class RealtimeService implements OnDestroy {
     return this.emit(Events.playSet, { link });
   }
   /** Adds a YouTube song with me as the singer. If nothing is playing, my turn starts right away. */
-  addToQueue(link: string): Promise<Ack> {
-    return this.emit(Events.queueAdd, { link });
+  addToQueue(link: string, partnerId?: string): Promise<Ack> {
+    return this.emit(Events.queueAdd, partnerId ? { link, partnerId } : { link });
+  }
+  /** S-09: answer a duet invite. */
+  answerInvite(entryId: string, yes: boolean): Promise<Ack> {
+    this.invite.set(null);
+    return this.emit(Events.duetAnswer, { entryId, yes });
+  }
+  cancelInvite(entryId: string): Promise<Ack> {
+    return this.emit(Events.duetCancel, { entryId });
+  }
+  /** S-11: "Không nhận lời mời". */
+  setInvitesOpen(open: boolean): Promise<Ack> {
+    return this.emit(Events.invitesSet, { open });
+  }
+  setMicMode(mode: MicMode): Promise<Ack> {
+    return this.emit(Events.micMode, { mode });
+  }
+  sendFx(kind: FxKind): Promise<Ack> {
+    return this.emit(Events.fxSend, { kind });
   }
   /** Q-06: take one of my own songs out of the queue. */
   removeFromQueue(entryId: string): Promise<Ack> {
@@ -130,8 +160,8 @@ export class RealtimeService implements OnDestroy {
   leaveStage(): Promise<Ack> {
     return this.emit(Events.stageLeave);
   }
-  signal(to: string, data: RtcSignalData): void {
-    this.socket?.emit(Events.rtcSignal, { to, data });
+  signal(to: string, data: RtcSignalData, ch: 'sing' | 'talk' = 'sing'): void {
+    this.socket?.emit(Events.rtcSignal, { to, ch, data });
   }
 
   /**

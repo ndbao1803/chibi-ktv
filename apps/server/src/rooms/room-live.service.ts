@@ -76,6 +76,14 @@ export class RoomLiveService implements OnModuleDestroy {
     if (effects.queue) this.emitQueue(state);
     if (effects.skip) this.emitSkip(state);
     if (effects.notice) this.emitNotice(state, effects.notice);
+    for (const t of effects.tell ?? []) this.toUser(state, t.userId, 'room:notice', t.text);
+    if (effects.invite) this.toUser(state, effects.invite.toId, Events.duetInvite, effects.invite.invite);
+    if (effects.fx) this.ns.to(channel(state.code)).emit(Events.fx, effects.fx);
+  }
+
+  /** Every open tab of one member. */
+  private toUser(s: RoomState, userId: string, event: string, payload: unknown) {
+    for (const id of s.socketsOf(userId)) this.ns.to(id).emit(event, payload);
   }
 
   emitPresence(s: RoomState) {

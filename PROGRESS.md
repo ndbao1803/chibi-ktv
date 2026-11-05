@@ -1,5 +1,21 @@
 # Progress — 5 Nov 2026
 
+## Update: Phase 4 complete (everyone's voice and duets)
+- Talk mesh (`voice/talk.service.ts`): one RTCPeerConnection per pair, single sendrecv audio line,
+  only the smaller user id offers, mics swapped with `replaceTrack` (no renegotiation, no glare).
+  Web Audio gain per person implements VC-02/03/06/08; analysers drive speaking rings (VC-07).
+  Open mic has a noise gate on a cloned track (not on iPhone, where tapping the mic crackles).
+- Server: `mic:mode` (max 8 open), `fx:send` cheers with 3 s cooldown, duet invites with 30 s
+  expiry, cancel, opt-out; partner on `StageState`; partner can step down alone and does not vote.
+  Personal messages (`Effects.tell`) go only to one member's tabs.
+- Fixed two singer-path bugs found by the 3-browser run: a double call to the same listener
+  ("wrong state: stable"), and a singer hand-over where the new singer reused a stale incoming
+  connection so the old singer never heard them.
+- Tests: server unit 54, e2e 30, web 20; `pnpm test:voice` 11/11; T-01 PASS (worst 20.6 ms).
+- Not testable here: real phones, Bluetooth, two networks. Next: Phase 5.
+
+---
+
 ## Update: Phase 3 complete (the full 3D room)
 - Scene split into `pages/room/scene/`: `room-decor.ts` (everything from the prototype, RD-01..03),
   `chibi.ts` (shared geometry for 16 avatars, sit/walk/stage poses, away dimming, talk ring ready

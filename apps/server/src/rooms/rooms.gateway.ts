@@ -23,6 +23,11 @@ import {
   RT_NAMESPACE,
   RtcSignalInput,
   SeatTakeInput,
+  DuetAnswerInput,
+  DuetCancelInput,
+  FxInput,
+  InvitesSetInput,
+  MicModeInput,
   SkipVoteInput,
   TEST_TRACK_LINK,
   TEST_TRACK_SECONDS,
@@ -36,6 +41,7 @@ import { AUTH_COOKIE, readCookie } from '../auth/auth.cookie.js';
 import { YouTubeService } from '../youtube/youtube.service.js';
 import { RoomsService } from './rooms.service.js';
 import { RoomLiveService, channel } from './room-live.service.js';
+import type { Effects, RoomState } from './room-state.js';
 import { leaveCurrentRoom, roomContext, type KtvSocket } from './socket-session.js';
 
 @WebSocketGateway({ namespace: RT_NAMESPACE })
@@ -168,10 +174,10 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     const check = await this.youtube.check(id);
     if (!check.ok) return check;
 
-    const added = ctx.state.queue.add(check.song, ctx.user.id, ctx.user.displayName, Date.now());
+    const added = ctx.state.addSong(check.song, ctx.user.id, parsed.data.partnerId);
     if (!added.ok) return added;
-    // A free queue starts singing right away (S-01); either way, `queue:state` always goes out.
-    this.live.apply(ctx.state, { ...ctx.state.startTurnIfIdle(), queue: true });
+    // A free queue starts singing right away (S-01); a duet invite goes to the partner (S-08).
+    this.live.apply(ctx.state, added.effects);
     this.log.log(`${ctx.user.displayName} added a song in ${ctx.state.code}`);
     return { ok: true, entryId: added.entryId };
   }
@@ -224,6 +230,63 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     return { ok: true };
   }
 
+  /* ---------- duets (S-07..S-11) ---------- */
+
+  @SubscribeMessage(Events.duetAnswer)
+  duetAnswer(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = DuetAnswerInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Câu trả lời không hợp lệ' };
+    return this.applied(ctx.state, ctx.state.answerInvite(ctx.user.id, parsed.data.entryId, parsed.data.yes));
+  }
+
+  @SubscribeMessage(Events.duetCancel)
+  duetCancel(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = DuetCancelInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Mã bài hát không hợp lệ' };
+    return this.applied(ctx.state, ctx.state.cancelInvite(ctx.user.id, parsed.data.entryId));
+  }
+
+  @SubscribeMessage(Events.invitesSet)
+  invitesSet(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = InvitesSetInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Giá trị không hợp lệ' };
+    this.live.apply(ctx.state, ctx.state.setInvitesOpen(ctx.user.id, parsed.data.open));
+    return { ok: true };
+  }
+
+  /* ---------- everyone's voice and cheers (VC-01, VC-04, VC-10) ---------- */
+
+  @SubscribeMessage(Events.micMode)
+  micMode(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = MicModeInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Chế độ micro không hợp lệ' };
+    return this.applied(ctx.state, ctx.state.setMicMode(ctx.user.id, parsed.data.mode));
+  }
+
+  @SubscribeMessage(Events.fxSend)
+  fxSend(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
+    const ctx = roomContext(this.live, client);
+    if (!ctx) return { ok: false, error: 'Bạn chưa ở trong phòng' };
+    const parsed = FxInput.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'Hiệu ứng không hợp lệ' };
+    return this.applied(ctx.state, ctx.state.sendFx(ctx.user.id, parsed.data.kind));
+  }
+
+  /** Broadcasts a successful result's effects and turns it into a plain ack. */
+  private applied(state: RoomState, r: { ok: true; effects: Effects } | { ok: false; error: string }): Ack {
+    if (!r.ok) return r;
+    this.live.apply(state, r.effects);
+    return { ok: true };
+  }
+
   /** R-11..R-13: sit somewhere else; the first click on a free seat wins. */
   @SubscribeMessage(Events.seatTake)
   takeSeat(@ConnectedSocket() client: KtvSocket, @MessageBody() body: unknown): Ack {
@@ -256,7 +319,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     // Send to the person's most recent tab only, so two tabs never both answer.
     const target = ctx.state.socketsOf(parsed.data.to).at(-1);
     if (!target) return { ok: false, error: 'Người này đã rời phòng' };
-    const msg: RtcSignalFromServer = { from: ctx.user.id, data: parsed.data.data };
+    const msg: RtcSignalFromServer = { from: ctx.user.id, ch: parsed.data.ch, data: parsed.data.data };
     this.ns.to(target).emit(Events.rtcSignal, msg);
     return { ok: true };
   }
